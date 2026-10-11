@@ -34,6 +34,12 @@ def make_sink(out: str | None, fmt: str | None):
         ext = os.path.splitext(out)[1].lower()
         fmt = {".csv": "csv", ".json": "json", ".jsonl": "jsonl"}.get(ext, "jsonl")
     fmt = fmt or "jsonl"
+    if fmt == "sheets":
+        from .sinks.sheets import SheetsSink
+        key = out
+        if "docs.google.com" in out:
+            key = out.split("/d/")[1].split("/")[0]
+        return SheetsSink(key)
     if out is None:
         return JsonlSink("/dev/stdout")
     return {"csv": CsvSink, "json": JsonSink, "jsonl": JsonlSink}[fmt](out)
@@ -49,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-f",
         "--format",
-        choices=("json", "jsonl", "csv"),
+        choices=("json", "jsonl", "csv", "sheets"),
         help="output format (default: inferred from --out, else jsonl)",
     )
     parser.add_argument(
