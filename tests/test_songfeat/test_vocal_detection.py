@@ -1,3 +1,6 @@
+from pathlib import Path
+
+from songfeat.loaders import load
 from songfeat.model import Note, Part, Piece
 from songfeat.vocal import detect_vocal
 
@@ -58,3 +61,36 @@ def test_empty_part_scores_zero_without_raising():
     evidence = detect_vocal(part, piece_with(part))
     assert evidence.confidence == 0.0
     assert evidence.is_candidate is False
+    assert evidence.signals == {"lyrics": 0.0, "monophony": 0.0, "range": 0.0, "naming": 0.0}
+
+
+def test_instrument_names_containing_voice_words_are_not_vocal():
+    """Regression: word-boundary matching ensures Bass Clarinet does not match 'bass'."""
+    # Monophonic, in-range notes would be candidate if "bass" substring matched
+    part = line([60, 62, 64], part=0, name="Bass Clarinet", instrument="Bass Clarinet")
+    evidence = detect_vocal(part, piece_with(part))
+    assert evidence.signals["naming"] == 0.0
+    assert evidence.is_candidate is False
+
+    # Same for Alto Saxophone
+    part = line([69, 71, 72], part=1, name="Alto Saxophone", instrument="Alto Saxophone")
+    evidence = detect_vocal(part, piece_with(part))
+    assert evidence.signals["naming"] == 0.0
+    assert evidence.is_candidate is False
+
+
+def test_no_part_is_vocal_in_real_quartet(tmp_path):
+    """Review Focus: a real string quartet (Mozart K.155) must not crash or invent a singer."""
+    from music21 import corpus
+
+    out = tmp_path / "quartet.musicxml"
+    score = corpus.parse("mozart/k155")
+    score.write("musicxml", fp=str(out))
+    piece = load(str(out))
+
+    # Verify we loaded a quartet
+    assert len(piece.parts) == 4
+
+    evidence = [detect_vocal(p, piece) for p in piece.parts]
+    assert not any(e.is_candidate for e in evidence)
+    assert all(0.0 <= e.confidence <= 1.0 for e in evidence)

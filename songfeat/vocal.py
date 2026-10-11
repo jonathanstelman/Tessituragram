@@ -6,6 +6,7 @@ inspected rather than silently believed.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from .context import PartContext
@@ -36,13 +37,23 @@ def _range_score(part: Part) -> float:
 
 
 def _naming_score(part: Part) -> float:
-    haystack = f"{part.name or ''} {part.instrument or ''}".lower()
-    return 1.0 if any(word in haystack for word in VOCAL_WORDS) else 0.0
+    # Match only if a name or instrument field is exactly a single vocal keyword,
+    # avoiding false matches on compound names like "Bass Clarinet".
+    name_lower = (part.name or "").strip().lower()
+    instrument_lower = (part.instrument or "").strip().lower()
+
+    if name_lower in VOCAL_WORDS or instrument_lower in VOCAL_WORDS:
+        return 1.0
+    return 0.0
 
 
 def detect_vocal(part: Part, piece: Piece) -> VocalEvidence:
     if part.is_empty:
-        return VocalEvidence(confidence=0.0, is_candidate=False, signals={})
+        return VocalEvidence(
+            confidence=0.0,
+            is_candidate=False,
+            signals={"lyrics": 0.0, "monophony": 0.0, "range": 0.0, "naming": 0.0}
+        )
 
     context = PartContext(part, piece)
     signals = {
