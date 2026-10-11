@@ -45,6 +45,7 @@ def _checked(values):
 
 
 def test_quartiles_are_ordered(records):
+    seen = 0
     for record in records:
         f = record.features
         ordered = [f["q0_hz"], f["q1_hz_dur"], f["q2_hz_dur"], f["q3_hz_dur"], f["q4_hz"]]
@@ -52,16 +53,21 @@ def test_quartiles_are_ordered(records):
         # time; the extremes stay real. Skip rather than crash on sorted().
         if any(v is None for v in ordered):
             continue
+        seen += 1
         assert ordered == sorted(ordered), record.source_path
+    assert seen, "no quartile sets were checked"
 
 
 def test_count_weighted_quartiles_are_also_ordered(records):
+    seen = 0
     for record in records:
         f = record.features
         trio = [f["q1_hz_cnt"], f["q2_hz_cnt"], f["q3_hz_cnt"]]
         if any(v is None for v in trio):
             continue
+        seen += 1
         assert trio[0] <= trio[1] <= trio[2], record.source_path
+    assert seen, "no count-weighted quartile trios were checked"
 
 
 def test_durations_are_non_negative(records):
@@ -143,3 +149,143 @@ def test_every_record_has_the_full_schema(records):
     assert expected, "schema minus identity columns was empty"
     for record in records:
         assert expected <= set(record.features), record.source_path
+
+
+# --- three invariants from the design spec that the above narrowed away ---
+#
+# docs/superpowers/specs/2026-10-10-songfeat-design.md:357-365 lists five
+# property-test invariants. Two are covered faithfully above (quartile
+# ordering; non-negative dose/duration values). The other three were
+# narrowed or dropped while this module was written and are restored here,
+# each tested against the real thing the spec names rather than a proxy
+# that happens to be easier to reach from a FeatureRecord.
+
+
+@pytest.fixture(scope="module")
+def pieces():
+    """Parsed Pieces for SAMPLE, without running the feature battery.
+
+    `phrase_longest_seconds` (checked against total time above) is bounded
+    by the piece's own timeline almost by construction -- a single
+    phrase's span can't exceed it barring a clock bug. The spec's actual
+    claim is about the SUM of every phrase's span, which no feature
+    exposes. Reusing `PartContext.phrases` and `_span_seconds` --
+    `phrasing()`'s own building blocks, not a reimplementation of them --
+    means this test checks the same thing the feature does, from the same
+    input, instead of re-deriving it independently and risking a second,
+    different bug.
+    """
+    from songfeat.loaders import load
+
+    return [load(path, drop_trailing_marker=True) for path in SAMPLE]
+
+
+def test_phrase_durations_sum_no_more_than_total_time(pieces):
+    from songfeat.context import PartContext
+    from songfeat.features.vocal_phrasing import _span_seconds
+
+    seen = 0
+    for piece in pieces:
+        total = piece.duration_seconds
+        if total is None:
+            continue
+        for part in piece.parts:
+            if part.is_empty:
+                continue
+            spans = [_span_seconds(p) for p in PartContext(part, piece).phrases]
+            seen += 1
+            assert sum(spans) <= total + 0.01, (piece.source_path, part.index)
+    assert seen, "no phrase-duration sums were checked"
+
+
+def test_passaggio_percentages_sum_within_tolerance(records):
+    """The three registers of one voice type are disjoint frequency zones.
+
+    Checked against PASSAGGI's edges plus the shared 0.1 Hz edge
+    tolerance (``vocal_passaggi._EDGE_TOLERANCE_HZ``): the narrowest gap
+    between two adjacent zones for the same voice (medium voice's
+    low/middle boundary, 277.2-293.7 Hz) is 16.5 Hz, far wider than the
+    0.2 Hz the tolerance could bridge. So a single note's sounding time
+    lands in at most one of the three registers, and the three
+    percentages should sum to **at most** 100 -- not necessarily to 100,
+    since a singer can spend time outside all three zones of a given
+    voice type.
+
+    Tolerance: each `_pct` is independently rounded to 2 decimal places
+    from an unrounded fraction (``vocal_passaggi.passaggi``), so summing
+    three of them can overstate the true sum by at most 3 * 0.005 = 0.015
+    points. 0.1 leaves headroom over that bound while still catching a
+    real defect: double-counted time would overshoot by whole points, not
+    hundredths.
+    """
+    from songfeat.constants import PASSAGGI
+
+    seen = 0
+    for record in records:
+        f = record.features
+        for voice, registers in PASSAGGI.items():
+            values = [f.get(f"pass_{voice}_{register}_pct") for register in registers]
+            if any(v is None for v in values):
+                continue
+            seen += 1
+            assert sum(values) <= 100.0 + 0.1, (record.source_path, voice, values)
+    assert seen, "no passaggio percentage sums were checked"
+
+
+@pytest.fixture(scope="module")
+def marker_pairs():
+    """(path, kept, dropped) for every corpus file, not just SAMPLE.
+
+    This test needs a part that already has a second note at or below the
+    marker pitch before dropping -- the exact condition
+    ``loaders._drop_trailing_marker`` checks before refusing to drop
+    anything. None of SAMPLE's 12 files has one: verified directly, every
+    sampled file's only note at or below MIDI 24 (C1) is the trailing
+    marker itself, so the guard's "leave it alone" branch is never
+    exercised by SAMPLE. Three files in the full 150-file corpus do
+    (18-XVIII.mid, 41-XLI.mid, 96-XCVI.mid -- each ends with the marker
+    duplicated one note earlier). ``load()`` alone, with no feature
+    extraction, costs about 2s for all 150 files, so scanning the whole
+    corpus here is cheap and does not touch or widen SAMPLE, which stays
+    at 12 for every other test in this module.
+    """
+    from songfeat.loaders import load
+
+    pairs = []
+    # Deliberately the full corpus, not SAMPLE -- see the docstring above.
+    # Every other fixture/test in this module reads SAMPLE; this is the
+    # one exception, because SAMPLE alone cannot exercise what the test
+    # checks.
+    for name in sorted(os.listdir(CORPUS)):
+        path = os.path.join(CORPUS, name)
+        kept = load(path, drop_trailing_marker=False)
+        dropped = load(path, drop_trailing_marker=True)
+        pairs.append((path, kept, dropped))
+    return pairs
+
+
+def test_dropping_marker_never_raises_a_genuinely_low_part(marker_pairs):
+    from songfeat.loaders import REFERENCE_MARKER_MIDI
+
+    seen = 0
+    for path, kept, dropped in marker_pairs:
+        for kept_part, dropped_part in zip(kept.parts, dropped.parts):
+            if kept_part.is_empty:
+                continue
+            # "Genuinely sings that low" is exactly what
+            # _drop_trailing_marker itself checks: a note at or below the
+            # marker pitch OTHER than the trailing one. Exactly one such
+            # note (the marker alone) is the common case, excluded here;
+            # two or more means the guard must refuse to drop anything.
+            low_count = sum(
+                1 for n in kept_part.notes if n.midi <= REFERENCE_MARKER_MIDI
+            )
+            if low_count < 2:
+                continue
+            seen += 1
+            kept_min = min(n.midi for n in kept_part.notes)
+            dropped_min = (
+                min(n.midi for n in dropped_part.notes) if dropped_part.notes else None
+            )
+            assert dropped_min == kept_min, (path, kept_part.index, kept_min, dropped_min)
+    assert seen, "no genuinely-low part was found anywhere in the corpus"

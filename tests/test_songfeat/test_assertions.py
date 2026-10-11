@@ -92,7 +92,21 @@ def test_filtered_loops_assert_they_checked_something():
 
 
 def _has_assert_behind_a_filter(fn: ast.AST) -> bool:
-    """True when an assertion sits inside an `if` nested in a loop."""
+    """True when an assertion is reachable only through a loop-level filter.
+
+    Two shapes count, both common idioms for "only check the rows that
+    pass some condition":
+
+    1. The assert sits *inside* an `if` nested in a loop:
+       `for x in xs: if cond: assert ...`.
+    2. The loop *skips* via `if cond: continue`, and the assert is a
+       sibling statement that only runs on iterations the filter did not
+       skip: `for x in xs: if cond: continue; assert ...`. This shape
+       looked safe to a first version of this scanner -- the assert is
+       not nested inside the `if`, so nothing *looked* conditional -- but
+       it is exactly as vacuous when the filter matches nothing: every
+       iteration continues before reaching the assert.
+    """
     for node in ast.walk(fn):
         if not isinstance(node, (ast.For, ast.AsyncFor, ast.While)):
             continue
@@ -100,6 +114,29 @@ def _has_assert_behind_a_filter(fn: ast.AST) -> bool:
             if isinstance(inner, ast.If) and any(
                 isinstance(n, ast.Assert) for n in ast.walk(inner)
             ):
+                return True
+        if _has_filtered_continue_guard(node):
+            return True
+    return False
+
+
+def _has_filtered_continue_guard(loop: ast.AST) -> bool:
+    """True when the loop filters via `if cond: continue` and then asserts.
+
+    Looks for an `if` containing a `continue` anywhere in the loop, and an
+    `assert` elsewhere in the loop that is not itself inside that `if`'s
+    body (an assert inside the `if` alongside the `continue` is the
+    already-handled nested shape, not this one).
+    """
+    for if_node in ast.walk(loop):
+        if not isinstance(if_node, ast.If):
+            continue
+        has_continue = any(isinstance(n, ast.Continue) for n in ast.walk(if_node))
+        if not has_continue:
+            continue
+        shielded = {id(n) for n in ast.walk(if_node)}
+        for n in ast.walk(loop):
+            if isinstance(n, ast.Assert) and id(n) not in shielded:
                 return True
     return False
 
