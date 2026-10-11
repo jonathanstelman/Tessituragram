@@ -73,6 +73,34 @@ spreadsheet gives tessitura quartiles that differ from what their own CLI prints
 
 The plan is written to be executed by someone with no prior context. Start at Task 1.
 
+## Assertions must be able to fail
+
+Three vacuous assertions in this plan's own test code reached review before being
+caught, each passing unconditionally. Treat assertion strength as a review item, not
+a style preference: a test that cannot fail is worse than no test, because it reports
+coverage it does not provide.
+
+`tests/test_songfeat/test_assertions.py` enforces mechanically what can be: every test
+function contains an assertion, and no assertion sits alone inside a filtered loop
+without a guard that the filter matched. The rest needs judgement at review time.
+
+The patterns actually found here, worth checking by hand:
+
+| Pattern | Why it passed anyway |
+|---|---|
+| `assert not any(k.startswith("_error_") for k in out)` | the key was `_errors`; the prefix never matched |
+| `assert out["n_syllables"] is not None` | trivially true for a real `0` |
+| `assert all(out[f] is None for f in FIELDS)` | `all()` over an empty `FIELDS` is `True` |
+| `for x in xs: if cond: assert ...` | no iteration when nothing matches `cond` |
+| `assert len(names) > 90` | a floor, when the exact count is known and deliberate |
+| `assert value > 0` | passes for any positive number, including a wrong one |
+| `assert x is None or isinstance(x, str)` | a disjunction almost nothing fails |
+
+Two rules follow. **Pin the value when you know it** — an exact count or
+`pytest.approx` of a computed figure, not a threshold. And **when a test loops or
+filters, assert it checked something**: count the matches and assert the count, so an
+empty collection fails loudly instead of passing silently.
+
 ## Contributing upstream
 
 Two issues have been filed against upstream (README corrections, and a stale committed
