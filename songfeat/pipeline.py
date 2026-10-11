@@ -11,6 +11,12 @@ from .sinks.base import Sink
 from .vocal import detect_vocal
 
 
+def _rounded(value: float | None) -> float | None:
+    """Round a signal to four places, matching vocal_confidence's own
+    rounding, so the four columns visibly sum to the confidence."""
+    return None if value is None else round(value, 4)
+
+
 def analyze_file(
     path: str,
     groups_filter: Iterable[str] | None = None,
@@ -31,6 +37,13 @@ def analyze_file(
             part_name=part.name,
             is_vocal_candidate=evidence.is_candidate,
             vocal_confidence=evidence.confidence,
+            # The evidence behind the verdict, not just the verdict: the
+            # detector exists to be auditable, and it can only be audited
+            # where the user actually looks, which is the output row.
+            vocal_signal_lyrics=evidence.signals.get("lyrics"),
+            vocal_signal_monophony=_rounded(evidence.signals.get("monophony")),
+            vocal_signal_range=_rounded(evidence.signals.get("range")),
+            vocal_signal_naming=evidence.signals.get("naming"),
             features={**piece_features, **part_features},
             errors=errors,
         )

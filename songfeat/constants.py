@@ -32,8 +32,18 @@ RUN_MAX_NOTE_QUARTERS = 0.5
 #: An interval of this many semitones or more is a leap.
 LEAP_MIN_SEMITONES = 3
 
-#: A phrase this long or longer counts as a breath demand. A configurable
-#: threshold, not a measured constant: there is no physiological source
-#: for 8 seconds specifically, only the intuition that a sustained line
-#: this long starts to tax breath support.
+#: A rest-delimited segment this long or longer is counted by
+#: ``phrasing.n_phrases_over_breath_threshold``. A configurable threshold,
+#: not a measured constant: there is no physiological source for 8 seconds
+#: specifically, only the intuition that a sustained line this long starts
+#: to tax breath support.
+#:
+#: What it counts is a segment between notated rests, which is not a breath
+#: phrase -- singers breathe mid-line where nothing is notated -- so the
+#: count saturates on legato writing (6 of 8 on aria I). Do not "fix" the
+#: number: widening the gap threshold, or expressing it in seconds, was
+#: measured to segment more coarsely rather than more finely (11-XI goes
+#: from a 42.6s maximum to 117.8s; even a 0.5s gap leaves 46.7s).
+#: Recalibration is a reserved research question. See the phrasing
+#: feature's description for what the columns do claim.
 BREATH_DEMAND_SECONDS = 8.0

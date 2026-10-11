@@ -153,13 +153,24 @@ def test_aria_i_quartiles_are_ordered_for_both_weightings(aria_i_part):
     assert out["q0_hz"] <= out["q1_hz_cnt"] <= out["q2_hz_cnt"] <= out["q3_hz_cnt"] <= out["q4_hz"]
 
 
-def test_aria_i_dose_and_duration_values_are_non_negative(aria_i_part):
+def test_aria_i_dose_and_duration_values_are_pinned(aria_i_part):
+    """Pinned, not bounded.
+
+    These were four `>= 0` assertions on a fixed file, fifteen lines below
+    a test that pins cycle_dose to 30702.8 +/- 0.5 -- so they could not
+    fail for any value the code could plausibly produce, and said nothing
+    the tests above do not already say better. sustained_seconds is 0.0
+    because aria I has no note reaching SUSTAINED_MIN_SECONDS (1.5s); that
+    is a real finding about the file, and a change to the threshold or to
+    the note set would now move it.
+    """
     part, piece = aria_i_part
     out = base.extract_part(part, piece, groups_filter=["vocal"])
-    assert out["cycle_dose"] >= 0
-    assert out["time_dose_seconds"] >= 0
-    assert out["rest_seconds"] >= 0
-    assert out["sustained_seconds"] >= 0
+    assert out["cycle_dose"] == pytest.approx(30702.95, abs=0.5)
+    assert out["time_dose_seconds"] == pytest.approx(164.57, abs=0.01)
+    assert out["rest_seconds"] == pytest.approx(39.43, abs=0.01)
+    assert out["sustained_note_count"] == 0
+    assert out["sustained_seconds"] == 0.0
 
 
 # --- Fix round 1: an undefined quantity must come back None, never a

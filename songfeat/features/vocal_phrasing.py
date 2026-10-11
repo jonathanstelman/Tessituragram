@@ -33,8 +33,18 @@ def _span_seconds(notes: list[Note]) -> float:
 @feature(
     name="phrasing", group="vocal", scope="part", source="songfeat",
     description=(
-        "Phrase structure derived from rest gaps, and how many phrases exceed "
-        "a sustained-breath threshold."
+        "REST-DELIMITED SEGMENTS, not breath phrases. A segment is a run of "
+        "notes between notated rests of at least PHRASE_GAP_QUARTERS; "
+        "n_phrases, phrase_longest_seconds, phrase_mean_seconds and "
+        "phrase_longest_notes all describe those segments. Singers breathe "
+        "mid-line where no rest is notated, so these do NOT measure breath "
+        "demand: on legato writing a segment can run 30-80 seconds and span "
+        "many real breaths. n_phrases_over_breath_threshold counts segments "
+        "of at least BREATH_DEMAND_SECONDS and saturates accordingly (6 of 8 "
+        "on aria I) -- read it as 'long unrested stretches', not 'hard "
+        "breaths'. Recalibrating the threshold is a reserved research "
+        "question; a seconds-based gap was measured to segment more coarsely, "
+        "not more finely."
     ),
     fields=PHRASE_FIELDS,
 )

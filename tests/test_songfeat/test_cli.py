@@ -135,3 +135,12 @@ def test_sheets_format_without_out_is_a_usage_error_not_a_crash(capsys):
     # not attempt to construct a real SheetsSink (no creds are configured).
     with pytest.raises(SystemExit):
         main([ARIA, "-g", "basic", "-q", "-f", "sheets"])
+
+
+def test_sheets_help_warns_that_a_re_run_duplicates_rows():
+    """Finding 6's ruling: document the missing key column rather than
+    implement deduplication. A user picking --format sheets has to be able
+    to see the hazard from --help, not only from the source."""
+    text = build_parser().format_help()
+    assert "deduplicate" in text, text
+    assert "source_path + part_index" in text, text

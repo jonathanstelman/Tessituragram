@@ -17,12 +17,20 @@ def test_names_are_snake_cased():
 
 
 def test_adapter_registers_a_large_battery():
-    # Threshold lowered from the brief's >100 after rulings R and T removed
-    # 7 dynamics extractors the model can't supply and 7 more that return a
-    # multi-dimensional vector no honest scalar column could represent --
-    # both deliberate, reviewed cuts, not a regression. 98 remain.
+    """Pinned, not bounded.
+
+    `> 90` could not fail while the real count was 98 and deliberate, so
+    it asserted nothing about the number it exists to protect; a silent
+    drop of seven extractors would have passed it. The count is the sum of
+    deliberate, reviewed cuts: the brief's >100 less 7 dynamics extractors
+    the model cannot supply (ruling R), 7 multi-dimensional vectors no
+    honest scalar column could represent (ruling T), and 8 multi-voice
+    extractors that returned a confident constant 0.0 against a single
+    reconstructed line (fix round 3, finding 4). Changing this number is a
+    decision, so it has to be made here rather than absorbed.
+    """
     names = [n for n in base.registry() if n.startswith(("js_", "nat_"))]
-    assert len(names) > 90
+    assert len(names) == 90, sorted(names)
 
 
 def test_borrowed_features_are_namespaced_and_attributed():
@@ -152,3 +160,45 @@ def test_as_score_carries_a_mid_piece_tempo_change():
     marks = list(score.parts[0].flatten().getElementsByClass(m21_tempo.MetronomeMark))
     found = {(m.offset, m.getQuarterBPM()) for m in marks}
     assert found == {(0.0, 80.0), (10.0, 160.0)}
+
+
+# --- Fix round 3: the skip rule, applied to its own stated criterion -------
+
+def test_multi_voice_extractors_are_skipped():
+    """SKIPPED_EXTRACTORS' own rule: measured against one line these
+    return a confident wrong number. Each of these compares voices with
+    one another, or singles out the highest or lowest of several, and read
+    a constant 0.0 across every aria in the corpus."""
+    for name in (
+        "VoiceEqualityNumberOfNotesFeature", "VoiceEqualityNoteDurationFeature",
+        "VoiceEqualityMelodicLeapsFeature", "VoiceEqualityRangeFeature",
+        "RangeOfHighestLineFeature", "RelativeNoteDensityOfHighestLineFeature",
+        "MelodicIntervalsInLowestLineFeature", "VoiceSeparationFeature",
+    ):
+        assert name in SKIPPED_EXTRACTORS, name
+    registered = set(base.registry())
+    for column in (
+        "js_voice_equality_number_of_notes", "js_voice_equality_note_duration",
+        "js_voice_equality_melodic_leaps", "js_voice_equality_range",
+        "js_range_of_highest_line", "js_relative_note_density_of_highest_line",
+        "js_melodic_intervals_in_lowest_line", "js_voice_separation",
+    ):
+        assert column not in registered, column
+
+
+def test_as_score_relays_lyrics():
+    """`nat_language` read a constant 0.0 because `_as_score` relayed
+    tempo, meter and key but not the lyrics `Note.lyric` carries -- the
+    adapter's own argument against omitting information Piece already has.
+    """
+    from songfeat.model import Note, Part, Piece
+
+    notes = [
+        Note(midi=60, onset=0.0, duration=1.0, part=0, lyric="Lor"),
+        Note(midi=62, onset=1.0, duration=1.0, part=0),
+        Note(midi=64, onset=2.0, duration=1.0, part=0, lyric="em"),
+    ]
+    part = Part(index=0, notes=notes)
+    piece = Piece(source_path="x.mid", source_format="midi", parts=[part])
+    relayed = [n.lyric for n in _as_score(part, piece).flatten().notes]
+    assert relayed == ["Lor", None, "em"]

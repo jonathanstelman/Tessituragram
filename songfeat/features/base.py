@@ -8,6 +8,37 @@ Extractors are scoped to either a part (one row per instrumental/vocal line)
 or the whole piece (ensemble-level facts like tempo and key, which have no
 meaningful per-part variant). ``extract_part`` and ``extract_piece`` run only
 the extractors registered at the matching scope.
+
+Which note set a feature measures
+---------------------------------
+
+"The line" means two different things across the feature modules, and the
+choice is deliberate in each case. There is no single right answer, so the
+rule is stated here once rather than inferred per module:
+
+* ``part.notes`` -- every note, chord members included. Used by
+  ``tessitura``, ``vocal_load``, ``pitch_range``, ``basic.text`` and
+  ``passaggi``. These are *inventory* measurements: how much pitch, how
+  much phonation, how much time in a zone. A chord's third voice is real
+  sound, so dropping it would under-report the demand on whoever sings it.
+
+* ``PartContext.monophonic`` -- the highest note at each onset. Used by
+  ``leaps``, ``chromaticism``, ``text_setting``, ``runs`` and
+  ``phrasing``. These are *melodic* measurements, defined over a sequence
+  of successive notes. An interval, a melisma or a run between two
+  simultaneous notes is not a thing, so the line has to be reduced to one
+  note per onset before they mean anything.
+
+On a monophonic part -- which the whole aria corpus is -- the two sets are
+identical and nothing distinguishes them. On a chordal or divisi part they
+differ, and two columns that read like the same measurement can disagree:
+``basic.n_lyric_syllables`` counts lyrics over every note while
+``text_setting.n_syllables`` counts them over the monophonic reduction, so
+a syllable attached to a lower chord member is counted by the first and
+not the second. Both feature descriptions say so.
+
+A note-set choice is a measurement decision. Changing one changes what a
+published column means, so it belongs in a review, not in a refactor.
 """
 
 from __future__ import annotations

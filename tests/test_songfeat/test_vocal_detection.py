@@ -171,3 +171,49 @@ def test_no_part_is_vocal_in_real_quartet(tmp_path):
     evidence = [detect_vocal(p, piece) for p in piece.parts]
     assert not any(e.is_candidate for e in evidence)
     assert all(0.0 <= e.confidence <= 1.0 for e in evidence)
+
+
+# --- Fix round 3: the evidence has to reach the output ---------------------
+
+def test_the_record_carries_the_four_signals_behind_the_confidence():
+    """`VocalEvidence.signals` was computed and discarded.
+
+    The design's stated reason for returning evidence at all is that "a
+    wrong guess is auditable rather than silent". On lyric-less input --
+    the whole corpus -- the lyrics signal is always 0.0 and weighted 0.45,
+    so the ceiling is 0.55 while a monophonic in-range part already sits
+    at 0.45: the 0.5 threshold falls inside the 0.10 that naming
+    contributes. A user seeing 0.45 / False cannot tell that from the row
+    unless the signals are in it.
+    """
+    from songfeat.pipeline import analyze_file
+
+    records = list(analyze_file(ARIA, drop_trailing_marker=True))
+    row = records[0].flat()
+    # Aria I is named "Voice1", so naming carries it over the threshold.
+    # The row now shows that the 0.546 rests on naming and monophony with
+    # the 0.45-weight lyrics signal contributing nothing.
+    assert row["vocal_signal_lyrics"] == 0.0
+    assert row["vocal_signal_naming"] == 1.0
+    assert row["vocal_signal_monophony"] == 1.0
+    assert row["vocal_signal_range"] == pytest.approx(0.9802, abs=0.0001)
+    # The confidence is exactly the weighted sum of these four, so the row
+    # explains its own verdict.
+    assert row["vocal_confidence"] == pytest.approx(
+        0.45 * row["vocal_signal_lyrics"]
+        + 0.25 * row["vocal_signal_monophony"]
+        + 0.20 * row["vocal_signal_range"]
+        + 0.10 * row["vocal_signal_naming"],
+        abs=0.0005,
+    )
+    assert row["is_vocal_candidate"] is True
+
+
+def test_the_signal_columns_are_in_the_schema():
+    """A column only reachable through flat() is not reachable from a
+    CSV or a sheet, which is where a user would look."""
+    from songfeat.features import base
+
+    names = base.schema()
+    for signal in ("lyrics", "monophony", "range", "naming"):
+        assert f"vocal_signal_{signal}" in names

@@ -65,9 +65,12 @@ def test_rows_are_appended_in_batches_not_one_call_each():
         sink.open(SCHEMA)
         for i in range(6):
             sink.write(record(i))
-    # Exactly: the header write, plus two batches of three mid-stream.
-    # A looser bound (e.g. <=) would also pass an implementation that
-    # ignores batch_size and dumps everything in one flush at close().
+    # Exactly: the header write, plus two batches of three. Rows are now
+    # buffered and flushed at close(), because the error columns are only
+    # known then, but they are still chunked by batch_size -- the Sheets
+    # quota is per API call, so one 6-row call would be the regression
+    # this guards. A looser bound (e.g. <=) would pass an implementation
+    # that ignores batch_size and dumps everything in a single call.
     assert worksheet.append_calls == 3
 
 
@@ -128,3 +131,82 @@ except ImportError:
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert "import-ok" in result.stdout, result.stderr
     assert "construct-failed" in result.stdout, result.stderr
+
+
+# --- Fix round 3: error columns, and the re-run hazard --------------------
+
+def failing_record(index: int) -> FeatureRecord:
+    return FeatureRecord(
+        source_path="song.mid", source_format="midi", part_index=index,
+        features={"min_midi": 60 + index},
+        errors={"js_polyrhythms": "TypeError: no pulses"},
+    )
+
+
+def test_error_columns_reach_the_sheet():
+    """`schema()` has no error columns -- they are only known once every
+    record has been seen -- so a header written at open() and rows taken
+    `row.get(column, "")` over it discarded every reason. CsvSink buffers
+    for exactly this reason; this now does too."""
+    worksheet = FakeWorksheet()
+    with sink_with(worksheet) as sink:
+        sink.open(SCHEMA)
+        sink.write(failing_record(0))
+    assert worksheet.rows[0] == SCHEMA + ["_error_js_polyrhythms"]
+    assert worksheet.rows[1][-1] == "TypeError: no pulses"
+
+
+def test_error_columns_are_shared_across_rows():
+    """One record failing an extractor widens the sheet for all of them,
+    and a row that did not fail gets a blank, not a missing cell."""
+    worksheet = FakeWorksheet()
+    with sink_with(worksheet) as sink:
+        sink.open(SCHEMA)
+        sink.write(record(0))
+        sink.write(failing_record(1))
+    assert worksheet.rows[0] == SCHEMA + ["_error_js_polyrhythms"]
+    assert worksheet.rows[1] == ["song.mid", 0, 60, ""]
+    assert worksheet.rows[2] == ["song.mid", 1, 61, "TypeError: no pulses"]
+
+
+def test_a_sheet_without_an_error_column_refuses_to_swallow_the_reason():
+    """Appending under a header that has no room for the reason is the
+    defect being fixed, so widening an existing sheet is refused loudly
+    rather than silently dropping the message."""
+    worksheet = FakeWorksheet([SCHEMA])
+    with sink_with(worksheet) as sink:
+        sink.open(SCHEMA)
+        sink.write(failing_record(0))
+        with pytest.raises(ValueError, match="_error_js_polyrhythms"):
+            sink.close()
+
+
+def test_an_existing_error_column_is_reused():
+    header = SCHEMA + ["_error_js_polyrhythms"]
+    worksheet = FakeWorksheet([header])
+    with sink_with(worksheet) as sink:
+        sink.open(SCHEMA)
+        sink.write(failing_record(0))
+    assert worksheet.rows.count(header) == 1
+    assert worksheet.rows[1] == ["song.mid", 0, 60, "TypeError: no pulses"]
+
+
+def test_the_docstring_warns_that_a_re_run_duplicates_rows():
+    """The spec's optional key column (source_path + part_index) was never
+    implemented, and the ruling is to document the omission rather than
+    deduplicate. An invisible duplication hazard is the defect; this test
+    keeps the warning from being dropped."""
+    text = SheetsSink.__doc__
+    assert "duplicat" in text.lower(), text
+    assert "source_path" in text and "part_index" in text, text
+
+
+def test_a_re_run_really_does_append_a_second_time():
+    """Proves the documented hazard is real, so the docstring is not
+    describing something that cannot happen."""
+    worksheet = FakeWorksheet()
+    for _ in range(2):
+        with sink_with(worksheet) as sink:
+            sink.open(SCHEMA)
+            sink.write(record(0))
+    assert worksheet.rows == [SCHEMA, ["song.mid", 0, 60], ["song.mid", 0, 60]]

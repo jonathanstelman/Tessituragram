@@ -266,7 +266,13 @@ def meter(piece: Piece) -> dict[str, Any]:
     group="basic",
     scope="part",
     source="songfeat",
-    description="Whether the score carries sung text.",
+    description=(
+        "Whether the score carries sung text. Counted over every note, "
+        "chord members included, so on a chordal part this disagrees with "
+        "text_setting.n_syllables, which counts over the monophonic "
+        "reduction (one note per onset). Both are deliberate; see the "
+        "note-set rule in songfeat/features/base.py."
+    ),
     fields=("has_lyrics", "n_lyric_syllables"),
 )
 def text(part: Part, piece: Piece) -> dict[str, Any]:

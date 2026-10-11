@@ -36,7 +36,11 @@ TEXT_FIELDS = (
     description=(
         "Syllable count and melismatic writing: how many notes each syllable "
         "carries, and how much of the lyriced portion of the line is "
-        "melismatic."
+        "melismatic. Measured over the monophonic reduction (one note per "
+        "onset), because a melisma is a sequence of successive notes; on a "
+        "chordal part n_syllables therefore disagrees with "
+        "basic.n_lyric_syllables, which counts over every note. Both are "
+        "deliberate; see the note-set rule in songfeat/features/base.py."
     ),
     fields=TEXT_FIELDS,
 )

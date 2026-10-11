@@ -51,12 +51,21 @@ def test_unparseable_file_raises_parse_error(tmp_path):
 
 
 def test_load_midi():
+    """Pinned, not bounded.
+
+    `> 0` on a fixed corpus file could not fail: the values are whatever
+    that file contains, and four assertions that a real MIDI has some
+    notes somewhere assert nothing about parsing it correctly. Independently
+    checked against the file with music21 directly: 455 notes (454 plus the
+    trailing C1 marker, which this call keeps), 239 measures, 478 quarters,
+    and a single 140bpm mark giving 478 * 60 / 140 = 204.857 seconds.
+    """
     piece = load(ARIA)
     assert piece.source_format == "midi"
-    assert len(piece.notes) > 0
-    assert piece.measure_count > 0
-    assert piece.quarter_length > 0
-    assert piece.duration_seconds > 0
+    assert len(piece.notes) == 455
+    assert piece.measure_count == 239
+    assert piece.quarter_length == pytest.approx(478.0)
+    assert piece.duration_seconds == pytest.approx(204.857, abs=0.001)
     # Notes come back in onset order.
     onsets = [n.onset for n in piece.notes]
     assert onsets == sorted(onsets)

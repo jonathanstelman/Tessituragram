@@ -49,6 +49,20 @@ SKIPPED_EXTRACTORS = {
     "AverageNumberOfIndependentVoicesFeature",
     "VariabilityOfNumberOfIndependentVoicesFeature",
 
+    # Same rule, same family, missed on the first pass: each of these
+    # compares voices against each other, or singles out the highest or
+    # lowest of several. Against one reconstructed line there is nothing to
+    # compare, and they do not fail -- they return a confident 0.0, constant
+    # across every aria in the corpus, indistinguishable from a measured
+    # finding that the voices are perfectly unequal or that the highest line
+    # has no range. "VoiceSeparation" is the average semitone distance
+    # between adjacent lines, which for one line is not small, it is
+    # undefined.
+    "VoiceEqualityNumberOfNotesFeature", "VoiceEqualityNoteDurationFeature",
+    "VoiceEqualityMelodicLeapsFeature", "VoiceEqualityRangeFeature",
+    "RangeOfHighestLineFeature", "RelativeNoteDensityOfHighestLineFeature",
+    "MelodicIntervalsInLowestLineFeature", "VoiceSeparationFeature",
+
     # Dynamics: ``Note`` carries no velocity/dynamic at all, so unlike
     # tempo/meter/key this is not something a richer ``_as_score`` could
     # recover -- the model simply does not have the data. Left registered,
@@ -126,6 +140,15 @@ def _as_score(part: Part, piece: Piece) -> stream.Score:
     for note in sorted(part.notes, key=lambda n: n.onset):
         element = m21_note.Note(note.midi)
         element.quarterLength = note.duration or 0.25
+        # Lyrics are relayed for the same reason tempo, meter and key are:
+        # ``Note.lyric`` is real information Piece already carries, and
+        # leaving it out does not null the extractors that read it, it makes
+        # them return a default. ``nat_language`` read a constant 0.0 for
+        # every part of every aria because of this -- which looks like a
+        # measurement and is not one. The corpus carries no lyrics, so it
+        # will still read 0.0 here; on lyric-bearing input it is now correct.
+        if note.lyric:
+            element.lyric = note.lyric
         line.insert(note.onset, element)
     return stream.Score([line])
 

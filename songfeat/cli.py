@@ -130,7 +130,14 @@ def build_parser() -> argparse.ArgumentParser:
         "-f",
         "--format",
         choices=("json", "jsonl", "csv", "sheets"),
-        help="output format (default: inferred from --out, else jsonl)",
+        help=(
+            "output format (default: inferred from --out, else jsonl). "
+            "'sheets' appends to the Google Sheet named by --out and does "
+            "NOT deduplicate: running twice against the same sheet leaves "
+            "two copies of every row. The spec's optional key column "
+            "(source_path + part_index) is not implemented; use a fresh "
+            "worksheet per run, or clear the sheet first"
+        ),
     )
     parser.add_argument(
         "-g",
