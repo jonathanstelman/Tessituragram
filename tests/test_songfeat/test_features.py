@@ -64,7 +64,7 @@ def test_schema_can_filter_by_group():
 
 def test_pitch_range():
     piece = make_piece()
-    out = extract_part(piece.parts[0], piece)
+    out = extract_part(piece.parts[0], piece, groups_filter=["basic"])
     assert out["min_midi"] == 60
     assert out["min_note"] == "C4"
     assert out["max_note"] == "G4"
@@ -73,14 +73,14 @@ def test_pitch_range():
 
 def test_size_counts():
     piece = make_piece()
-    out = extract_part(piece.parts[0], piece)
+    out = extract_part(piece.parts[0], piece, groups_filter=["basic"])
     assert out["n_notes"] == 3
     assert out["n_measures"] == 1
     assert out["notes_per_second"] == pytest.approx(1.5)
 
 
 def test_meter_and_key_reported():
-    out = extract_piece(make_piece())
+    out = extract_piece(make_piece(), groups_filter=["basic"])
     assert out["meter_initial"] == "4/4"
     assert out["key_initial_name"] == "C major"
     assert out["n_key_changes"] == 0
@@ -94,7 +94,7 @@ def test_key_changes_counted():
             KeyMark(onset=8.0, sharps=2, mode="major"),
         ]
     )
-    out = extract_piece(piece)
+    out = extract_piece(piece, groups_filter=["basic"])
     assert out["n_key_signatures"] == 3
     assert out["n_key_changes"] == 1  # 0 -> 2, then 2 -> 2 is not a change
 
@@ -104,7 +104,7 @@ def test_duplicate_key_marks_at_same_offset_are_collapsed():
     piece = make_piece(
         keys=[KeyMark(onset=0.0, sharps=3, mode="major") for _ in range(4)]
     )
-    out = extract_piece(piece)
+    out = extract_piece(piece, groups_filter=["basic"])
     assert out["n_key_signatures"] == 1
     assert out["n_key_changes"] == 0
 
@@ -116,7 +116,7 @@ def test_tempo_changes_counted():
             TempoMark(onset=4.0, bpm=60.0),
         ]
     )
-    out = extract_piece(piece)
+    out = extract_piece(piece, groups_filter=["basic"])
     assert out["tempo_initial_bpm"] == 120.0
     assert out["tempo_min_bpm"] == 60.0
     assert out["n_tempo_changes"] == 1
@@ -126,7 +126,7 @@ def test_lyrics_detected():
     piece = make_piece(
         notes=[Note(midi=60, onset=0.0, duration=1.0, part=0, lyric="la")]
     )
-    out = extract_part(piece.parts[0], piece)
+    out = extract_part(piece.parts[0], piece, groups_filter=["basic"])
     assert out["has_lyrics"] is True
     assert out["n_lyric_syllables"] == 1
 
@@ -138,7 +138,10 @@ def test_empty_piece_yields_nulls_not_errors():
     declares a duration at all.
     """
     piece = make_piece(notes=[], keys=[], tempos=[], meters=[])
-    out = {**extract_piece(piece), **extract_part(piece.parts[0], piece)}
+    out = {
+        **extract_piece(piece, groups_filter=["basic"]),
+        **extract_part(piece.parts[0], piece, groups_filter=["basic"]),
+    }
 
     # piece-scoped: nothing notated.
     assert out["tempo_initial_bpm"] is None
@@ -171,7 +174,10 @@ def test_empty_piece_yields_nulls_not_errors():
 def test_a_failing_extractor_does_not_abort_the_record():
     """analyzed_key needs a music21 score; a hand-built Piece has none."""
     piece = make_piece()
-    out = {**extract_piece(piece), **extract_part(piece.parts[0], piece)}
+    out = {
+        **extract_piece(piece, groups_filter=["basic"]),
+        **extract_part(piece.parts[0], piece, groups_filter=["basic"]),
+    }
     assert out["analyzed_key"] is None
     assert out["n_notes"] == 3  # other features still present
 
@@ -205,7 +211,7 @@ def test_real_file_matches_reference_implementation():
     """The original CLI reports D2-E4 for this aria (a single-part file)."""
     from songfeat import analyze
 
-    records = analyze(ARIA, drop_trailing_marker=True)
+    records = analyze(ARIA, groups_filter=["basic"], drop_trailing_marker=True)
     assert len(records) == 1
     out = records[0].features
     assert out["min_note"] == "D2"

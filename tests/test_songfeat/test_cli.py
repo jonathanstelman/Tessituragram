@@ -48,8 +48,10 @@ def test_no_paths_is_an_error():
 
 
 def test_json_output_to_file(tmp_path):
+    # -g basic: only min_note is asserted; the borrowed battery (Task 8)
+    # has nothing to do with this test and would just slow it down.
     out = tmp_path / "out.json"
-    assert main([ARIA, "-q", "-o", str(out)]) == 0
+    assert main([ARIA, "-g", "basic", "-q", "-o", str(out)]) == 0
     records = json.loads(out.read_text())
     assert len(records) == 1
     assert records[0]["features"]["min_note"] == "C1"  # marker kept by default
@@ -57,13 +59,13 @@ def test_json_output_to_file(tmp_path):
 
 def test_drop_marker_flag_changes_the_result(tmp_path):
     out = tmp_path / "out.json"
-    assert main([ARIA, "-q", "--drop-trailing-marker", "-o", str(out)]) == 0
+    assert main([ARIA, "-g", "basic", "-q", "--drop-trailing-marker", "-o", str(out)]) == 0
     assert json.loads(out.read_text())[0]["features"]["min_note"] == "D2"
 
 
 def test_csv_output_has_a_stable_header(tmp_path):
     out = tmp_path / "out.csv"
-    assert main([ARIA, "-q", "-o", str(out)]) == 0
+    assert main([ARIA, "-g", "basic", "-q", "-o", str(out)]) == 0
     rows = list(csv.DictReader(out.open()))
     assert len(rows) == 1
     assert rows[0]["max_note"] == "E4"
@@ -72,7 +74,7 @@ def test_csv_output_has_a_stable_header(tmp_path):
 def test_csv_output_has_no_stringified_errors_column(tmp_path):
     """The interim CLI's _errors dict used to str()-ify into every row."""
     out = tmp_path / "out.csv"
-    assert main([ARIA, "-q", "-o", str(out)]) == 0
+    assert main([ARIA, "-g", "basic", "-q", "-o", str(out)]) == 0
     header = out.read_text().splitlines()[0].split(",")
     assert "_errors" not in header
     rows = list(csv.DictReader(out.open()))
@@ -83,7 +85,7 @@ def test_unparseable_file_is_reported_not_fatal(tmp_path, capsys):
     bad = tmp_path / "broken.mid"
     bad.write_bytes(b"nope")
     out = tmp_path / "out.json"
-    code = main([str(bad), ARIA, "-q", "-o", str(out)])
+    code = main([str(bad), ARIA, "-g", "basic", "-q", "-o", str(out)])
     # One good record survives, so the run succeeds.
     assert code == 0
     assert len(json.loads(out.read_text())) == 1
@@ -98,7 +100,7 @@ def test_all_files_failing_returns_nonzero(tmp_path):
 
 def test_default_format_is_jsonl(tmp_path):
     out = tmp_path / "out.jsonl"
-    assert main([ARIA, "-q", "-o", str(out)]) == 0
+    assert main([ARIA, "-g", "basic", "-q", "-o", str(out)]) == 0
     assert len(out.read_text().strip().splitlines()) == 1
 
 

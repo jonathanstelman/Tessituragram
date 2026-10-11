@@ -41,7 +41,9 @@ def test_part_scoped_feature_sees_only_its_part():
             Part(index=1, notes=[Note(midi=36, onset=0.0, duration=1.0, part=1)]),
         ],
     )
-    out = base.extract_part(piece.parts[0], piece)
+    # groups_filter=["basic"]: this test only cares about the basic group's
+    # pitch_range, not the borrowed jSymbolic/native battery (Task 8).
+    out = base.extract_part(piece.parts[0], piece, groups_filter=["basic"])
     assert out["min_midi"] == 60
 
 
@@ -55,7 +57,8 @@ def test_empty_part_yields_none_not_an_exception():
     against a known, nonzero piece duration).
     """
     piece = Piece(source_path="x.mid", source_format="midi", parts=[Part(index=0)])
-    out = base.extract_part(piece.parts[0], piece)
+    # groups_filter=["basic"]: only basic's own fields are asserted below.
+    out = base.extract_part(piece.parts[0], piece, groups_filter=["basic"])
 
     # pitch_range: nothing to range over.
     assert out["min_midi"] is None
@@ -93,7 +96,9 @@ def test_failing_extractor_is_isolated():
 
     try:
         piece = Piece(source_path="x.mid", source_format="midi", parts=[Part(index=0)])
-        out = base.extract_part(piece.parts[0], piece)
+        # groups_filter=["basic"]: "boom" is registered under "basic"; the
+        # borrowed battery has nothing to do with this test.
+        out = base.extract_part(piece.parts[0], piece, groups_filter=["basic"])
         assert out["boom_value"] is None
         assert "boom" in out["_errors"]
     finally:
