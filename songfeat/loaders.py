@@ -162,21 +162,25 @@ def _measure_count(parts: list[stream.Part]) -> int:
 REFERENCE_MARKER_MIDI = 24
 
 
-def _drop_trailing_marker(notes: list[Note]) -> list[Note]:
+def _drop_trailing_marker(notes: list[Note]) -> tuple[list[Note], Note | None]:
     """Remove a final C1 that is an isolated reference marker.
 
     Only drops it when it is the last note *and* nothing else in the piece
-    sits that low, so genuine bass lines reaching C1 are left alone.
+    sits that low, so genuine bass lines reaching C1 are left alone. Returns
+    the dropped marker alongside the survivors (or ``None`` if nothing was
+    dropped) so the caller can truncate the piece to the marker's onset —
+    discarding its pitch but keeping its time would otherwise read the
+    piece as longer than the music.
     """
     if not notes:
-        return notes
+        return notes, None
     last = notes[-1]
     if last.midi != REFERENCE_MARKER_MIDI:
-        return notes
+        return notes, None
     others = [n for n in notes[:-1] if n.midi <= REFERENCE_MARKER_MIDI]
     if others:
-        return notes
-    return notes[:-1]
+        return notes, None
+    return notes[:-1], last
 
 
 def load(path: str, drop_trailing_marker: bool = False) -> Piece:
@@ -202,18 +206,26 @@ def load(path: str, drop_trailing_marker: bool = False) -> Piece:
     tempo_map = build_tempo_map(tempos)
     per_part_notes = _collect_notes(m21_parts, tempo_map)
     parts = []
+    dropped_marker_onsets: list[float] = []
     for index, m21_part in enumerate(m21_parts):
         name, instrument_name = (
             _part_label(m21_part) if isinstance(m21_part, stream.Part) else (None, None)
         )
         notes = per_part_notes[index]
         if drop_trailing_marker:
-            notes = _drop_trailing_marker(notes)
+            notes, dropped = _drop_trailing_marker(notes)
+            if dropped is not None:
+                dropped_marker_onsets.append(dropped.onset)
         parts.append(
             Part(index=index, name=name, instrument=instrument_name, notes=notes)
         )
 
     quarter_length = float(score.duration.quarterLength) if score.duration else 0.0
+    if dropped_marker_onsets:
+        # The parsed score still counts a dropped marker's time even though
+        # its pitch is gone; truncate to the latest one's onset, never past
+        # the parsed extent.
+        quarter_length = min(quarter_length, max(dropped_marker_onsets))
     duration_seconds = quarters_to_seconds(quarter_length, tempo_map)
 
     return Piece(

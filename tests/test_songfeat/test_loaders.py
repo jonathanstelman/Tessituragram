@@ -121,13 +121,85 @@ def test_marker_removal_preserves_genuine_low_notes():
         Note(midi=60, onset=1.0, duration=1.0, part=0),
         Note(midi=24, onset=2.0, duration=1.0, part=0),
     ]
-    assert _drop_trailing_marker(notes) == notes
+    survivors, dropped = _drop_trailing_marker(notes)
+    assert survivors == notes
+    assert dropped is None
 
 
 def test_marker_removal_on_empty_input():
     from songfeat.loaders import _drop_trailing_marker
 
-    assert _drop_trailing_marker([]) == []
+    survivors, dropped = _drop_trailing_marker([])
+    assert survivors == []
+    assert dropped is None
+
+
+def test_marker_removal_on_marker_only_part():
+    """A part that is nothing but the marker must not raise, and reports it."""
+    from songfeat.loaders import _drop_trailing_marker
+
+    notes = [Note(midi=24, onset=5.0, duration=1.0, part=0)]
+    survivors, dropped = _drop_trailing_marker(notes)
+    assert survivors == []
+    assert dropped is notes[0]
+
+
+# --- dropping the marker must also shorten the piece ----------------------
+#
+# The corpus files all end with a C1 marker whose *time* music21 still
+# counts even once _drop_trailing_marker discards its pitch. Reference
+# numbers below are measured straight off the spec's ground-truth table for
+# aria I (data/test_data_arias/1-I.mid), not derived from our own code.
+
+def test_dropping_marker_truncates_to_marker_onset():
+    piece = load(ARIA, drop_trailing_marker=True)
+    assert piece.quarter_length == 476.0
+    assert piece.duration_seconds == pytest.approx(204.0, abs=0.01)
+
+
+def test_keeping_marker_leaves_duration_untouched():
+    piece = load(ARIA, drop_trailing_marker=False)
+    assert piece.quarter_length == 478.0
+    assert piece.duration_seconds == pytest.approx(204.857, abs=0.01)
+
+
+def test_dropping_marker_gives_reference_rest_time():
+    piece = load(ARIA, drop_trailing_marker=True)
+    sounding = sum(n.duration_seconds for n in piece.notes)
+    rest = piece.duration_seconds - sounding
+    assert rest == pytest.approx(39.43, abs=0.01)
+
+
+def test_genuine_trailing_low_c1_leaves_extent_untouched(tmp_path):
+    """When another note also sits at or below C1, nothing is dropped, and
+    the piece's extent must be left exactly as the parser gave it."""
+    from music21 import note as m21_note
+    from music21 import stream as m21_stream
+
+    s = m21_stream.Stream()
+    s.append(m21_note.Note("C4", quarterLength=1.0))
+    s.append(m21_note.Note("C1", quarterLength=1.0))
+    s.append(m21_note.Note("C1", quarterLength=1.0))
+    out = tmp_path / "genuine_low_c1.musicxml"
+    s.write("musicxml", fp=str(out))
+
+    kept = load(str(out), drop_trailing_marker=False)
+    dropped = load(str(out), drop_trailing_marker=True)
+
+    assert min(n.midi for n in dropped.notes) == 24
+    assert dropped.quarter_length == kept.quarter_length
+    assert dropped.duration_seconds == pytest.approx(kept.duration_seconds)
+
+
+def test_no_marker_leaves_extent_untouched(tmp_path):
+    path = tmp_path / "tune.abc"
+    path.write_text(ABC_TUNE)
+
+    kept = load(str(path), drop_trailing_marker=False)
+    dropped = load(str(path), drop_trailing_marker=True)
+
+    assert dropped.quarter_length == kept.quarter_length
+    assert dropped.duration_seconds == pytest.approx(kept.duration_seconds)
 
 
 # --- per-part isolation -----------------------------------------------------
