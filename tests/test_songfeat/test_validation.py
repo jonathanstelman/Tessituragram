@@ -94,3 +94,41 @@ def test_total_time_pair_is_none_when_a_component_is_unmeasurable():
     assert _total_time(120.0, None) is None
     assert _total_time(None, 30.0) is None
     assert _total_time(120.0, 30.0) == pytest.approx(150.0)
+
+
+def test_compare_reports_passaggio_percentages():
+    """Fix round 2, ruling AI: a dwell time can agree with the sheet while
+    its percentage disagrees, because the percentage divides by sounding
+    time -- the exact quantity the overlapping-note finding implicates.
+    Comparing only times is structurally blind to that, so compare() must
+    emit the percentages too."""
+    truth = load_ground_truth(XLSX)["I"]
+    assert truth["LV/Mp %p"] == pytest.approx(15.559895833333105, abs=1e-6)
+
+    results = {c.quantity: c for c in compare(CORPUS, XLSX, arias=["I"])}
+    assert "LV/Mp %p" in results
+    assert "MV/Mp %p" in results
+    assert "HV/Mp %p" in results
+    # Distinguishable expected values prove these are genuinely per-block,
+    # not nine entries all reading the same collapsed key.
+    assert results["LV/Mp %p"].expected != results["HV/Mp %p"].expected
+
+
+def test_tolerance_is_chosen_by_unit_not_one_shared_default():
+    """Fix round 2, ruling AJ: Hz, seconds and percentage points must each
+    get their own tolerance rather than inheriting one reused constant."""
+    from songfeat.validation import (
+        HZ_TOLERANCE,
+        PASSAGGIO_PERCENT_TOLERANCE,
+        PASSAGGIO_SECONDS_TOLERANCE,
+        SECONDS_TOLERANCE,
+        _tolerance_for,
+    )
+
+    assert _tolerance_for("Q2p") == HZ_TOLERANCE
+    assert _tolerance_for("t") == SECONDS_TOLERANCE
+    assert _tolerance_for("LV/Mp tp") == PASSAGGIO_SECONDS_TOLERANCE
+    assert _tolerance_for("LV/Mp %p") == PASSAGGIO_PERCENT_TOLERANCE
+    # The percentage tolerance is a percentage-point judgement, not a copy
+    # of the frequency tolerance that happens to share a unit-less number.
+    assert PASSAGGIO_PERCENT_TOLERANCE != HZ_TOLERANCE
