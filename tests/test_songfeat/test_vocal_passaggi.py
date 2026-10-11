@@ -1,0 +1,110 @@
+import pytest
+
+from songfeat.constants import PASSAGGI
+from songfeat.features import base
+from songfeat.features.vocal_passaggi import PASSAGGI_FIELDS, in_zone, near_zone
+from songfeat.model import Note, Part, Piece
+
+
+def built(*specs) -> tuple[Part, Piece]:
+    notes, onset = [], 0.0
+    for midi, seconds in specs:
+        notes.append(Note(midi=midi, onset=onset, duration=seconds * 2, part=0,
+                          onset_seconds=onset * 0.5, duration_seconds=seconds))
+        onset += seconds * 2
+    part = Part(index=0, notes=notes)
+    return part, Piece(source_path="x.mid", source_format="midi",
+                       parts=[part], duration_seconds=onset * 0.5)
+
+
+def test_constants_came_from_the_reference_implementation():
+    assert PASSAGGI["high"]["middle"] == (311.1, 392.0)
+    assert len([r for v in PASSAGGI.values() for r in v]) == 9
+
+
+def test_in_zone_is_inclusive_of_edges():
+    assert in_zone(311.1, (311.1, 392.0)) is True
+    assert in_zone(392.0, (311.1, 392.0)) is True
+    assert in_zone(300.0, (311.1, 392.0)) is False
+
+
+def test_near_zone_covers_outside_and_inside_the_edge():
+    # Two semitones below 311.1 Hz is about 277 Hz.
+    assert near_zone(278.0, (311.1, 392.0)) is True
+    assert near_zone(250.0, (311.1, 392.0)) is False
+
+
+def test_dwell_time_accumulates_per_zone():
+    # E4 is 329.63 Hz, inside the high-voice middle passaggio.
+    part, piece = built((64, 3.0))
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["pass_high_middle_seconds"] == pytest.approx(3.0)
+    assert out["pass_high_middle_pct"] == pytest.approx(100.0)
+
+
+def test_a_note_outside_every_zone_contributes_nothing():
+    part, piece = built((36, 3.0))      # C2, far below every zone
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["pass_high_middle_seconds"] == 0.0
+
+
+def test_crossings_count_transitions_not_notes():
+    # In, out, in again across the high-voice middle zone: two crossings.
+    part, piece = built((64, 1.0), (48, 1.0), (64, 1.0))
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["pass_high_crossings"] >= 2
+
+
+def test_longest_span_is_contiguous_time_inside_a_zone():
+    part, piece = built((64, 2.0), (65, 2.0), (48, 1.0), (64, 1.0))
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["pass_high_longest_span_seconds"] == pytest.approx(4.0)
+
+
+def test_empty_part_yields_none_for_every_field():
+    part = Part(index=0)
+    piece = Piece(source_path="x.mid", source_format="midi", parts=[part])
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert all(out[f] is None for f in PASSAGGI_FIELDS)
+
+
+# --- Ground truth from data/test_data_arias/1-I.mid, measured against the
+# project's reference spreadsheet (tests/system_tests/Master Data
+# Calculation.xlsx, sheet I). The reference implementation at
+# src/tessitura.py:70 uses a +/-0.1 Hz tolerance on zone edges, because
+# every edge is an equal-tempered frequency rounded to one decimal and a
+# strict comparison silently drops the note sitting on the true boundary
+# (see docs/superpowers/sdd task-10 ruling H). Tolerance here is 0.2s:
+# tight enough to catch a real error, loose enough for the ~0.1-0.15s
+# residual gap against the spreadsheet that neither strict nor tolerant
+# comparison fully closes.
+
+@pytest.fixture(scope="module")
+def aria_i_part():
+    from songfeat.loaders import load
+    piece = load("data/test_data_arias/1-I.mid", drop_trailing_marker=True)
+    return piece.parts[0], piece
+
+
+def test_aria_i_passaggio_dwell_times_match_the_spreadsheet(aria_i_part):
+    part, piece = aria_i_part
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["pass_low_middle_seconds"] == pytest.approx(25.607, abs=0.2)
+    assert out["pass_low_low_seconds"] == pytest.approx(59.179, abs=0.2)
+    assert out["pass_medium_middle_seconds"] == pytest.approx(21.321, abs=0.2)
+    assert out["pass_medium_low_seconds"] == pytest.approx(56.071, abs=0.2)
+    assert out["pass_high_middle_seconds"] == pytest.approx(0.679, abs=0.2)
+    assert out["pass_high_low_seconds"] == pytest.approx(34.929, abs=0.2)
+
+
+def test_aria_i_passaggio_percentages_sum_within_each_voice(aria_i_part):
+    """The three registers of a single voice type are disjoint zones, so
+    their percentages must sum to no more than 100% of sounding time."""
+    part, piece = aria_i_part
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    for voice in ("high", "medium", "low"):
+        total = sum(
+            out[f"pass_{voice}_{register}_pct"]
+            for register in ("high", "middle", "low")
+        )
+        assert 0.0 <= total <= 100.0 + 0.01
