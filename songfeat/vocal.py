@@ -29,7 +29,11 @@ UNAMBIGUOUS_VOCAL_WORDS = (
 )
 
 #: Words that decorate ambiguous vocal keywords (part numbers, roles, etc.).
-DECORATION_WORDS = ("solo", "voice", "vocal", "part", "line")
+#: "line" is deliberately excluded: it's standard instrumental vocabulary
+#: ("Bass Line", "Tenor Line" name an instrumental part, not a singer) and
+#: nothing vocal depends on it — "Vocal Line" still matches through the
+#: unambiguous "vocal" token regardless of how "line" is classified.
+DECORATION_WORDS = ("solo", "voice", "vocal", "part")
 
 #: How much each signal contributes. They sum to 1.0.
 WEIGHTS = {"lyrics": 0.45, "monophony": 0.25, "range": 0.20, "naming": 0.10}
@@ -72,7 +76,7 @@ def _naming_score(part: Part) -> float:
 
     Unambiguous keywords (voice, vocal, etc.) match as whole words anywhere.
     Ambiguous keywords (voice-type names) match only if other tokens are decorations
-    (numbers, roman numerals, other voice types, or words like solo/voice/vocal/part/line).
+    (numbers, roman numerals, other voice types, or words like solo/voice/vocal/part).
     """
     name_lower = (part.name or "").strip().lower()
     instrument_lower = (part.instrument or "").strip().lower()
@@ -81,8 +85,12 @@ def _naming_score(part: Part) -> float:
         if not text:
             continue
 
-        # Tokenise on whitespace and hyphens
-        tokens = [t for t in re.split(r"[\s\-]+", text) if t]
+        # Tokenise on letter/digit boundaries. Whitespace and hyphens fall
+        # out for free: they match neither alternative, so they act as
+        # delimiters without a separate split. This is what makes "Voice1"
+        # and "Soprano2" -- the corpus's actual naming convention -- tokenise
+        # the same as "Voice 1" and "Soprano 2".
+        tokens = re.findall(r"[a-z]+|\d+", text)
 
         # Check for unambiguous words (can match as a whole word anywhere)
         if any(word in UNAMBIGUOUS_VOCAL_WORDS for word in tokens):

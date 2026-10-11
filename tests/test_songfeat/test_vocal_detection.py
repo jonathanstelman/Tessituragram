@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -5,6 +6,10 @@ import pytest
 from songfeat.loaders import load
 from songfeat.model import Note, Part, Piece
 from songfeat.vocal import detect_vocal
+
+#: Every file in this directory is a solo vocal aria named "Voice1", with a
+#: trailing C1 marker that is a parsing artifact, not music (see loaders.py).
+ARIA = os.path.join("data", "test_data_arias", "1-I.mid")
 
 
 def piece_with(*parts: Part) -> Piece:
@@ -79,6 +84,7 @@ def test_empty_part_scores_zero_without_raising():
     ("Alto Flute", 0.0),
     ("Soprano Saxophone", 0.0),
     ("Soprano Recorder", 0.0),
+    ("Sopranino Recorder", 0.0),
     ("Soprano Clarinet", 0.0),
     ("Tenor Trombone", 0.0),
     ("Baritone Horn", 0.0),
@@ -86,6 +92,8 @@ def test_empty_part_scores_zero_without_raising():
     ("Baritone Ukulele", 0.0),
     ("Violin I", 0.0),
     ("Viola", 0.0),
+    ("Bass Line", 0.0),
+    ("Tenor Line", 0.0),
     # Solo voice-type parts (should accept)
     ("Soprano", 1.0),
     ("Alto", 1.0),
@@ -113,6 +121,11 @@ def test_empty_part_scores_zero_without_raising():
     ("Canto", 1.0),
     ("Sing", 1.0),
     ("Chant", 1.0),
+    # Letter/digit-run naming, the corpus's own convention (no separator)
+    ("Voice1", 1.0),
+    ("Soprano2", 1.0),
+    ("Alto1", 1.0),
+    ("Bass3", 1.0),
 ])
 def test_naming_signal_specification(part_name, expected_naming):
     """Comprehensive parametrised test of naming signal.
@@ -129,6 +142,18 @@ def test_naming_signal_specification(part_name, expected_naming):
     evidence = detect_vocal(part, piece_with(part))
     assert evidence.signals["naming"] == expected_naming, \
         f"{part_name} should have naming={expected_naming} but got {evidence.signals['naming']}"
+
+
+def test_a_real_aria_is_a_vocal_candidate():
+    """The only real input this project has is 150 solo vocal arias, each
+    named "Voice1" with no separator before the digit. Every prior round
+    tested the negative direction (quartet, instrument names) on real data
+    but the positive direction only on hand-built stubs -- which is how a
+    100% false-negative rate on the actual corpus survived three reviews.
+    """
+    piece = load(ARIA, drop_trailing_marker=True)
+    evidence = [detect_vocal(p, piece) for p in piece.parts]
+    assert any(e.is_candidate for e in evidence)
 
 
 def test_no_part_is_vocal_in_real_quartet(tmp_path):
