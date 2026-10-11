@@ -100,6 +100,66 @@ def test_empty_part_yields_none():
     assert out["nondiatonic_share"] is None
 
 
+def test_leaps_into_extremes_counts_landings_in_the_parts_own_outer_decile():
+    # Range 60-72 (span 12): extremes are <=61.2 or >=70.8. Both leaps land
+    # on the part's own min/max, so both count.
+    part, piece = built([60, 72, 61])
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["n_leaps_into_extremes"] == 2
+
+
+def test_leaps_into_extremes_is_zero_when_no_leap_lands_there():
+    # Range 60-70 (span 10): extremes are <=61.0 or >=69.0, but the only
+    # leap (62->65) lands well inside the middle 80%. The actual min (60)
+    # and max (70) are reached by step, not by a leap landing.
+    part, piece = built([60, 62, 65, 64, 66, 68, 70])
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["n_leaps_into_extremes"] == 0
+
+
+def test_zone_crossing_uses_in_zones_shared_edge_tolerance():
+    """D4's true frequency (293.6648 Hz) sits 0.0352 Hz below the
+    medium/middle zone's lower edge (293.7 Hz) -- the same boundary note
+    responsible for Ruling H's dwell-time error in vocal_passaggi.
+    in_zone includes it via a +-0.1 Hz tolerance; the overlap check this
+    feature uses must agree, not re-derive its own stricter comparison.
+    """
+    from songfeat.features.vocal_passaggi import in_zone, zone_overlaps
+    from songfeat.features.vocal_pitch import midi_to_hz
+
+    d4_hz = midi_to_hz(62)
+    zone = (293.7, 370.0)
+    assert in_zone(d4_hz, zone) is True
+    assert zone_overlaps(d4_hz, d4_hz, zone) is True
+    # The open-coded strict comparison this feature used to use would have
+    # missed D4 entirely, on this zone in isolation.
+    assert not (d4_hz < zone[1] and d4_hz > zone[0])
+
+
+def test_leap_landing_on_d4_counts_as_crossing_a_passaggio_zone():
+    # A3 -> D4: lands on the medium/middle zone's tolerance-only edge.
+    # (This particular leap also overlaps an adjacent zone outright, so it
+    # was already counted before the shared-tolerance fix -- the case
+    # below isolates the fix instead.)
+    part, piece = built([57, 62])
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["n_leaps_crossing_passaggio"] == 1
+
+
+def test_leap_crossing_is_detected_only_through_the_shared_tolerance():
+    """A4 (440 Hz) to C5 (523.2511 Hz) sits entirely in the gap between
+    the passaggio bands (392-523.3 Hz) except that C5's true frequency is
+    0.049 Hz below the low/high zone's lower edge (523.3 Hz) -- inside
+    only via the same tolerance in_zone applies. No other zone touches
+    this leap, so this case flips cleanly: before sharing in_zone's
+    tolerance via zone_overlaps, this was n_leaps_crossing_passaggio == 0;
+    after, it is 1.
+    """
+    part, piece = built([69, 72])
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["n_leaps_crossing_passaggio"] == 1
+
+
 def test_no_leaps_gives_none_ascending_share_but_real_zero_shares():
     """leap_ascending_share divides by the *leap* count, which is zero here
     -- undefined, not a measured "0% ascend". The gt2/gt4/gt7 shares divide

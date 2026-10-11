@@ -15,6 +15,7 @@ from ..constants import LEAP_MIN_SEMITONES, PASSAGGI
 from ..context import PartContext
 from ..model import Part, Piece
 from .base import feature
+from .vocal_passaggi import zone_overlaps
 from .vocal_pitch import midi_to_hz
 
 LEAP_FIELDS = (
@@ -86,7 +87,7 @@ def leaps(part: Part, piece: Piece) -> dict[str, Any]:
     for i in leap_indices:
         start_hz, end_hz = midi_to_hz(line[i].midi), midi_to_hz(line[i + 1].midi)
         lo, hi = sorted((start_hz, end_hz))
-        if any(lo < zone[1] and hi > zone[0] for zone in zones):
+        if any(zone_overlaps(lo, hi, zone) for zone in zones):
             crossing += 1
 
     ascending = sum(1 for i in leap_indices if intervals[i] > 0)
@@ -153,9 +154,11 @@ def chromaticism(part: Part, piece: Piece) -> dict[str, Any]:
 
     counts = Counter(note.midi % 12 for note in line)
     total = sum(counts.values())
+    # A single pitch class sums to -0.0 (zero entropy, correct, but an
+    # ugly sign for a published CSV column); normalise it away.
     entropy = -sum(
         (c / total) * math.log2(c / total) for c in counts.values() if c
-    )
+    ) or 0.0
 
     return {
         "nondiatonic_share": round(outside / len(line), 4),

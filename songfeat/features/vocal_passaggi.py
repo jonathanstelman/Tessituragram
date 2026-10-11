@@ -45,6 +45,21 @@ def in_zone(hz: float, zone: tuple[float, float]) -> bool:
     return (low - _EDGE_TOLERANCE_HZ) <= hz <= (high + _EDGE_TOLERANCE_HZ)
 
 
+def zone_overlaps(low_hz: float, high_hz: float, zone: tuple[float, float]) -> bool:
+    """Whether the span [low_hz, high_hz] intersects ``zone``.
+
+    Shares ``in_zone``'s edge tolerance rather than re-deriving it, so a
+    span endpoint that would count as "in zone" by that function also
+    counts here — e.g. D4 (293.6648 Hz) against the medium/middle zone
+    (293.7-370.0 Hz), which is only inside at all because of the
+    tolerance. Two features computing zone membership with different
+    tolerances would disagree about the same note; this is the one
+    definition both are required to use.
+    """
+    low, high = zone
+    return low_hz <= (high + _EDGE_TOLERANCE_HZ) and high_hz >= (low - _EDGE_TOLERANCE_HZ)
+
+
 def near_zone(hz: float, zone: tuple[float, float]) -> bool:
     margin = _SEMITONE ** PASSAGGIO_PROXIMITY_SEMITONES
     low, high = zone
