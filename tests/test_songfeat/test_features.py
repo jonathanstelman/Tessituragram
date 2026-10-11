@@ -125,13 +125,40 @@ def test_lyrics_detected():
 
 
 def test_empty_piece_yields_nulls_not_errors():
+    """The empty part here sits inside a piece with a known duration, so
+    size's rate (notes_per_second) is a real, defined zero rather than an
+    undefined None -- unlike the registry test's piece, which never
+    declares a duration at all.
+    """
     piece = make_piece(notes=[], keys=[], tempos=[], meters=[])
     out = {**extract_piece(piece), **extract_part(piece.parts[0], piece)}
-    assert out["n_notes"] == 0
-    assert out["min_note"] is None
+
+    # piece-scoped: nothing notated.
     assert out["tempo_initial_bpm"] is None
     assert out["key_initial_name"] is None
     assert out["meter_initial"] is None
+
+    # pitch_range: nothing to range over.
+    assert out["min_note"] is None
+    assert out["max_note"] is None
+    assert out["mean_midi"] is None
+    assert out["median_midi"] is None
+
+    # size: real counts/rates computed against the piece's own, nonzero
+    # duration and length -- zero notes divided by a known duration is 0.0,
+    # not undefined.
+    assert out["n_notes"] == 0
+    assert out["n_parts"] == 1
+    assert out["n_measures"] == 1
+    assert out["quarter_length"] == 4.0
+    assert out["duration_seconds"] == 2.0
+    assert out["notes_per_second"] == 0.0
+
+    # text: zero lyrics is a real, defined count.
+    assert out["has_lyrics"] is False
+    assert out["n_lyric_syllables"] == 0
+
+    assert out["_errors"] == {}
 
 
 def test_a_failing_extractor_does_not_abort_the_record():
