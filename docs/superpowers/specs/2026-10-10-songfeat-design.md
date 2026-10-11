@@ -288,11 +288,71 @@ quantiles. **This has been checked on one aria only** and must be confirmed
 across the corpus before any conclusion is drawn. Emitting both weightings lets
 the harness determine which definition the manual data uses.
 
+**Confirmed across all 150 arias** (Task 16, `songfeat/validation.py`):
+
+| Quantity | Agrees w/ sheet | n | Mean delta |
+|---|---|---|---|
+| `Q0p` (min) | 140/150 | 150 | -0.06 |
+| `Q4p` (max) | 145/150 | 150 | +1.20 |
+| `Q1p` duration-weighted | 136/150 | 150 | -1.03 |
+| `Q2p` duration-weighted | 129/150 | 150 | -2.04 |
+| `Q3p` duration-weighted | 131/150 | 150 | -0.49 |
+| `Q1p` count-weighted | 110/150 | 150 | -1.45 |
+| `Q2p` count-weighted | 95/150 | 150 | -4.47 |
+| `Q3p` count-weighted | 100/150 | 150 | -5.41 |
+
+Duration weighting agrees with the spreadsheet substantially more often than
+count weighting at every quartile (e.g. median 129/150 vs. 95/150), confirming
+the aria I hypothesis as a corpus-wide pattern rather than a one-off. Neither
+weighting reaches 150/150, so a residual, unrelated source of disagreement
+remains for ~15-20% of arias even for the right weighting (see below).
+
+`tr` (rest time) matched the sheet to float precision on aria I, but only
+82/150 arias agree within 1 s corpus-wide (mean delta -1.54 s, stdev 4.3 s,
+worst case -21.8 s). The failures are not randomly scattered: on the worst
+arias, total time `t` still matches closely while `tr` is off by 10-20+
+seconds, which only arithmetic allows if "sounding time" is overcounted by
+the same amount. Checking one such aria (XCIX) directly: 64 of its 320 vocal
+notes (20%) overlap the note before them in time -- `vocal_load` sums each
+note's own duration without deduplicating overlaps, so overlapping notes
+(ties, ornaments, or chord-like constructs in a nominally monophonic line)
+inflate sounding time and deflate rest by the overlap amount. This also
+explains most of the `Fptp`/cycle-dose divergence below. Flagged here as a
+corpus-scale finding from Task 16's harness; fixing it is out of that task's
+scope.
+
 ### 2. Cross-check against the reference implementation
 
 Run upstream `main.py` across the corpus and diff its reported values against
 ours. Any divergence is a defect in one implementation or the other, and the
 comparison identifies which.
+
+**Confirmed across all 150 arias:** `Q4p` (max) matches the CLI almost
+exactly (150/150, mean delta 0.002 Hz) and `Q0p` (min) nearly so (147/150).
+Cycle dose (`Fptp`/"Cycle Dose") is the surprise: it agrees with the CLI on
+only 41/150 arias -- barely better than its 44/150 agreement with the
+spreadsheet. On the 100 arias *without* the overlapping-note problem above,
+our cycle dose matches the CLI to within 0.03 vibrations; on the ~50 that
+have it, our value is inflated by hundreds to over ten thousand vibrations
+relative to *both* references (which stay close to each other there). So the
+aria I finding -- "cycle dose agrees with the CLI, not the sheet" -- does not
+generalise as a reference-choice story; it generalises as "cycle dose agrees
+with both references once the overlap bug is accounted for," which is a
+different and more actionable conclusion.
+
+**Passaggio offset (aria I: ~0.14 s in 5 of 6 non-high-register zones):**
+confirmed as a small, non-proportional offset across the corpus. Restricting
+to the middle/low-register zones with at least 1 s of dwell time (777 of
+1350 zone/aria pairs), the median delta is 0.002 s and the median absolute
+delta is 0.22 s -- consistent with aria I's ~0.14 s. The mean (0.37 s) and
+stdev (2.1 s) are much larger because of a long right tail: correlation
+between dwell time and delta is weak (Pearson r = 0.09), and the arias
+contributing the largest passaggio deltas are the same ones with the
+overlapping-note problem above, not long-dwell arias generally. So the
+offset is neither cleanly constant (there is real spread) nor proportional
+to dwell time (the correlation is too weak); it is a small, roughly flat
+residual for most arias, polluted by the same overlap artifact that distorts
+`tr` and `Fptp`.
 
 ### 3. Property tests
 

@@ -48,6 +48,35 @@ def make_sink(out: str | None, fmt: str | None):
     return {"csv": CsvSink, "json": JsonSink, "jsonl": JsonlSink}[fmt](out)
 
 
+#: The one ground-truth workbook we have; --validate has nowhere else to
+#: point without a second corpus being added, so it is not a CLI argument.
+GROUND_TRUTH_XLSX = os.path.join("tests", "system_tests", "Master Data Calculation.xlsx")
+
+
+def print_validation(corpus_dir: str, xlsx_path: str) -> None:
+    """Report per-quantity agreement with the manually verified corpus.
+
+    A table, not a verdict: the spreadsheet and the reference CLI disagree
+    with each other (see songfeat/validation.py), so the right output here
+    is counts and mean deltas a human can read the disagreement out of,
+    not a pass/fail that would have to pick a side.
+    """
+    from collections import defaultdict
+
+    from .validation import compare
+
+    results = compare(corpus_dir, xlsx_path)
+    by_quantity = defaultdict(list)
+    for entry in results:
+        by_quantity[entry.quantity].append(entry)
+    print(f"{'quantity':<30}{'agree':>8}{'of':>6}{'mean delta':>14}")
+    for quantity, entries in by_quantity.items():
+        agree = sum(1 for e in entries if e.within_tolerance)
+        deltas = [e.delta for e in entries if e.delta is not None]
+        mean = sum(deltas) / len(deltas) if deltas else float("nan")
+        print(f"{quantity:<30}{agree:>8}{len(entries):>6}{mean:>14.2f}")
+
+
 def print_profile(records) -> None:
     """Report dead columns and redundant pairs instead of writing records.
 
@@ -129,6 +158,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="analyse the inputs and report dead/redundant columns instead of writing records",
     )
     parser.add_argument(
+        "--validate",
+        action="store_true",
+        help=(
+            "compare computed features against the manually verified "
+            "ground-truth workbook and print an agreement report instead "
+            "of writing records; the path argument is the corpus directory"
+        ),
+    )
+    parser.add_argument(
         "--drop-trailing-marker",
         action="store_true",
         help=(
@@ -154,6 +192,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.schema:
         for name in schema(groups_filter):
             print(name)
+        return 0
+
+    if args.validate:
+        if not args.paths:
+            build_parser().error("--validate requires a corpus directory")
+        print_validation(args.paths[0], GROUND_TRUTH_XLSX)
         return 0
 
     if not args.paths:
