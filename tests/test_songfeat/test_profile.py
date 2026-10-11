@@ -1,6 +1,6 @@
 import pytest
 
-from songfeat.profile import correlated_pairs, profile_records
+from songfeat.profile import correlated_pairs, profile_records, weak_for_format
 from songfeat.record import FeatureRecord
 
 
@@ -68,3 +68,17 @@ def test_uncorrelated_columns_are_not_reported():
 def test_empty_input_is_safe():
     assert profile_records([]) == []
     assert correlated_pairs([]) == []
+
+
+def test_weak_for_format_flags_chromaticism_on_midi():
+    # chromaticism is the only feature with best_with set (Task 12), and it
+    # excludes midi -- pin the exact field names, not just "non-empty",
+    # so a future best_with change on a different feature is caught too.
+    weak = weak_for_format("midi")
+    assert weak == {
+        "nondiatonic_share", "chromatic_run_longest",
+        "pitch_class_entropy", "n_distinct_pitch_classes",
+    }
+    # A feature with best_with=None (the default -- "equally valid for
+    # every format") must never be flagged, on any format.
+    assert "leap_max_semitones" not in weak

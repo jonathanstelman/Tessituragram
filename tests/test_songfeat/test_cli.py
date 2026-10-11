@@ -110,6 +110,25 @@ def test_parser_defaults():
     assert args.format is None
 
 
+def test_profile_flag_reports_degeneracy_and_weak_columns(capsys):
+    # -g vocal keeps this fast (one group, one file) while still covering
+    # chromaticism, the only feature with best_with set -- so the weak-
+    # column annotation (ruling AD) has something real to flag.
+    code = main([ARIA, "-g", "vocal", "-q", "--drop-trailing-marker", "--profile"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "carry no information" in out
+
+    weak_lines = [line for line in out.splitlines() if "weaker on this input" in line]
+    assert weak_lines == [
+        "4 columns are weaker on this input (midi): declared best_with excludes it"
+    ]
+    # Pin the count, not just presence: a removed or partial annotation
+    # would still contain the substring "weak" without flagging all four
+    # chromaticism fields.
+    assert out.count("[weak: not best_with this format]") == 4
+
+
 def test_sheets_format_without_out_is_a_usage_error_not_a_crash(capsys):
     # No -o, so make_sink has no spreadsheet id/URL to work with; this must
     # not fall through to a bare TypeError from `"..." in None`, and must

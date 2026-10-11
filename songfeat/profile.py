@@ -3,6 +3,11 @@
 Borrowed feature batteries include columns that are meaningless for a
 single monophonic vocal line. This finds them before a modelling cycle
 does.
+
+``FeatureProfile.variance`` is *sample* variance (``statistics.variance``,
+``ddof=1``), matching ``pandas.Series.var()``'s default -- not population
+variance (``ddof=0``, e.g. ``numpy.var()``'s default), which would read
+smaller on the same data.
 """
 
 from __future__ import annotations

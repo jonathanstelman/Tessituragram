@@ -74,11 +74,15 @@ def print_profile(records) -> None:
             "declared best_with excludes it"
         )
     print()
-    print(f"{'feature':<44}{'null%':>8}{'distinct':>10}{'variance':>14}")
+    # "variance(ddof=1)" names the convention (sample variance, matching
+    # pandas' Series.var() default) so a reader cross-checking against
+    # numpy's ddof=0 default knows why the numbers differ, without having
+    # to go find the module docstring.
+    print(f"{'feature':<44}{'null%':>8}{'distinct':>10}{'variance(ddof=1)':>18}")
     for p in sorted(profiles, key=lambda p: (-p.null_rate, p.name)):
         variance = "" if p.variance is None else f"{p.variance:.4g}"
         flag = "  [weak: not best_with this format]" if p.name in weak_present else ""
-        print(f"{p.name:<44}{p.null_rate * 100:>7.1f}%{p.n_distinct:>10}{variance:>14}{flag}")
+        print(f"{p.name:<44}{p.null_rate * 100:>7.1f}%{p.n_distinct:>10}{variance:>18}{flag}")
     pairs = correlated_pairs(records)
     if pairs:
         print(f"\n{len(pairs)} correlated pairs at |r| >= 0.95:")
