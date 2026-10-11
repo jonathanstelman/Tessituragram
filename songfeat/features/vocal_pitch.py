@@ -21,6 +21,7 @@ TESSITURA_FIELDS = (
 
 LOAD_FIELDS = (
     "cycle_dose", "time_dose_seconds", "rest_seconds", "rest_ratio",
+    "rest_undefined_reason",
     "sustained_note_count", "sustained_seconds",
 )
 
@@ -97,7 +98,12 @@ def tessitura(part: Part, piece: Piece) -> dict[str, Any]:
     name="vocal_load", group="vocal", scope="part", source="songfeat",
     description=(
         "Phonatory load: total vibrations (cycle dose), time spent sounding, "
-        "rest, and sustained-note burden."
+        "rest, and sustained-note burden. ``time_dose_seconds`` is the sum of "
+        "note durations (a cumulative dose: each voice of a chord phonates), "
+        "while ``rest_seconds`` subtracts wall-clock sounding time, which is "
+        "the only quantity the piece's total duration can be compared "
+        "against. The two differ on any overlapping part; "
+        "``rest_undefined_reason`` names why rest is null when it is."
     ),
     fields=LOAD_FIELDS,
 )
@@ -109,22 +115,53 @@ def vocal_load(part: Part, piece: Piece) -> dict[str, Any]:
     dose = sum(
         midi_to_hz(n.midi) * (n.duration_seconds or 0.0) for n in part.notes
     )
-    sounding = sum(n.duration_seconds or 0.0 for n in part.notes)
+    # Two different readings of "time spent sounding", kept apart on
+    # purpose. The duration sum is cumulative phonatory dose: a four-note
+    # chord held for a second is four voice-seconds of phonation, and that
+    # is the quantity vocal load is about. Wall-clock sounding time is the
+    # union of the sounding intervals (songfeat/context.py:union_seconds).
+    #
+    # Rest must use the union. Subtracting a dose from the piece's total
+    # subtracts voice-seconds from elapsed seconds -- incompatible units,
+    # whatever one decides `time_dose_seconds` should mean. On 74 of the
+    # 150 corpus arias the sum exceeds elapsed sounding time, and on a
+    # chordal part it can exceed the piece's whole duration.
+    dose_seconds = sum(n.duration_seconds or 0.0 for n in part.notes)
+    sounding = context.sounding_seconds
     total = piece.duration_seconds
+
+    reason: str | None = None
+    rest: float | None
+    rest_ratio: float | None
     if total is None:
         # The piece's extent is unknown, not zero — rest is undefined,
         # not "no rest at all" (songfeat/model.py:79 makes None legal).
-        rest = None
-        rest_ratio = None
+        rest = rest_ratio = None
+        reason = "the piece's total duration is unknown, so rest is undefined"
+    elif sounding > total + 1e-6:
+        # Should be unreachable: a union of intervals inside the piece
+        # cannot outlast it. If it happens the input is inconsistent (a
+        # note running past the parsed extent), and the honest answer is
+        # None with the numbers that did not add up -- never the 0.0 the
+        # previous max(..., 0.0) clamp produced, which read as a measured
+        # absence of rest.
+        rest = rest_ratio = None
+        reason = (
+            f"wall-clock sounding time ({sounding:g}s) exceeds the piece's "
+            f"total duration ({total:g}s); the input is inconsistent"
+        )
     else:
-        rest = max(total - sounding, 0.0)
+        rest = total - sounding
         rest_ratio = round(rest / total, 4) if total else None
+        if not total:
+            reason = "the piece's total duration is zero, so rest has no ratio"
 
     return {
         "cycle_dose": round(dose, 2),
-        "time_dose_seconds": round(sounding, 2),
+        "time_dose_seconds": round(dose_seconds, 2),
         "rest_seconds": round(rest, 2) if rest is not None else None,
         "rest_ratio": rest_ratio,
+        "rest_undefined_reason": reason,
         "sustained_note_count": len(context.sustained),
         "sustained_seconds": round(
             sum(n.duration_seconds or 0.0 for n in context.sustained), 2

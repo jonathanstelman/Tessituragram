@@ -157,3 +157,61 @@ def test_aria_i_passaggio_percentages_sum_within_each_voice(aria_i_part):
             for register in ("high", "middle", "low")
         )
         assert 0.0 <= total <= 100.0 + 0.01
+
+
+# --- Fix round 3: dwell percentages and spans are wall-clock quantities ----
+#
+# `pass_*_seconds` stays a duration sum (a cumulative dwell dose, pinned
+# above against the spreadsheet). The percentage and the longest span are
+# wall-clock readings, so both are measured against the union of sounding
+# intervals; on a monophonic line, which the whole corpus is, union and
+# sum coincide and nothing above moves.
+
+def chordal(total_seconds: float, *events) -> tuple[Part, Piece]:
+    """events are (onset_seconds, duration_seconds, midi...) tuples."""
+    notes = []
+    for onset, seconds, *pitches in events:
+        for midi in pitches:
+            notes.append(Note(
+                midi=midi, onset=onset * 2, duration=seconds * 2, part=0,
+                onset_seconds=onset, duration_seconds=seconds,
+                is_chord_member=len(pitches) > 1,
+            ))
+    part = Part(index=0, notes=notes)
+    return part, Piece(source_path="x.mid", source_format="midi",
+                       parts=[part], duration_seconds=total_seconds)
+
+
+def test_longest_span_cannot_outlast_the_piece():
+    """A chord repeated through the piece: the old accumulator summed every
+    chord member's duration, so ten seconds of music reported a 40-second
+    continuous span inside a zone."""
+    chords = [(float(i), 1.0, 72, 73, 74, 76) for i in range(10)]
+    part, piece = chordal(10.0, *chords)
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["pass_low_high_seconds"] == pytest.approx(40.0)
+    assert out["pass_low_longest_span_seconds"] == pytest.approx(10.0)
+    assert out["pass_low_longest_span_seconds"] <= piece.duration_seconds
+
+
+def test_dwell_percentage_is_a_share_of_wall_clock_sounding_time():
+    """One second of in-zone chord, then one second out of zone.
+
+    The singer is in the zone for half the time they are sounding. The
+    old denominator (the duration sum, 5.0 s) and the old numerator (4.0 s
+    of chord-member duration) together reported 80%.
+    """
+    part, piece = chordal(10.0, (0.0, 1.0, 72, 73, 74, 76), (1.0, 1.0, 67))
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["pass_low_high_seconds"] == pytest.approx(4.0)
+    assert out["pass_low_high_pct"] == pytest.approx(50.0)
+
+
+def test_percentage_and_span_are_unchanged_on_a_monophonic_line():
+    """Union equals sum with no overlap, so the corpus values must not
+    move -- otherwise this fix would be a silent recalibration."""
+    part, piece = built((72, 1.0), (73, 1.0), (67, 2.0))
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["pass_low_high_seconds"] == pytest.approx(2.0)
+    assert out["pass_low_high_pct"] == pytest.approx(50.0)
+    assert out["pass_low_longest_span_seconds"] == pytest.approx(2.0)

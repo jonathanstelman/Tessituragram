@@ -1,5 +1,6 @@
 import os
 
+import music21
 import pytest
 
 from songfeat.loaders import (
@@ -272,3 +273,49 @@ def test_multipart_file_keeps_parts_separate(tmp_path):
     assert max(n.midi for n in piece.parts[0].notes) > max(
         n.midi for n in piece.parts[3].notes
     )
+
+
+# --- multi-tune (Opus) files ------------------------------------------------
+
+#: music21 bundles O'Neill's 1850, whose .abc files each hold many tunes.
+#: A real multi-tune file is the point here: a synthesised two-tune string
+#: would not prove music21 still returns an Opus for the shape in the wild.
+MULTI_TUNE_ABC = os.path.join(
+    os.path.dirname(music21.__file__), "corpus", "oneills1850", "0351-0400.abc"
+)
+
+
+def test_multi_tune_abc_is_refused_rather_than_pooled():
+    """A multi-tune file must not become one record.
+
+    Before this guard, music21's Opus was wrapped whole: 50 unrelated
+    tunes pooled into one part of 4240 notes, a 31-semitone
+    "compositional range" against 17-20 per tune, and a 1358-second
+    "duration". Every tessitura quartile and passaggio dwell was computed
+    across the lot, with no error, warning or null to show it.
+    """
+    from music21 import converter, stream
+
+    parsed = converter.parse(MULTI_TUNE_ABC)
+    # Guards the test: if music21 ever returns a Score here, the Opus
+    # branch is unreachable and this test would pass without exercising it.
+    assert isinstance(parsed, stream.Opus), type(parsed).__name__
+    assert len(parsed.scores) == 50
+
+    with pytest.raises(ParseError) as caught:
+        load(MULTI_TUNE_ABC)
+    message = str(caught.value)
+    assert "50" in message, message
+    assert "multi" in message.lower() or "opus" in message.lower(), message
+
+
+def test_single_tune_abc_still_loads():
+    """The Opus guard must not reject valid single-tune ABC."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as folder:
+        path = os.path.join(folder, "tune.abc")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(ABC_TUNE)
+        piece = load(path)
+    assert [n.midi for n in piece.notes] == [67, 69, 71, 72, 71, 69, 67, 69, 71, 72]

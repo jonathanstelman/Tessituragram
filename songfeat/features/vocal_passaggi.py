@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..constants import PASSAGGI, PASSAGGIO_PROXIMITY_SEMITONES, PHRASE_GAP_QUARTERS
+from ..constants import PASSAGGI, PASSAGGIO_PROXIMITY_SEMITONES
+from ..context import split_on_phrase_gaps, union_seconds
 from ..model import Part, Piece
 from .base import feature
 from .vocal_pitch import midi_to_hz
@@ -79,37 +80,49 @@ def passaggi(part: Part, piece: Piece) -> dict[str, Any]:
     if part.is_empty:
         return dict.fromkeys(PASSAGGI_FIELDS)
 
-    notes = sorted(part.notes, key=lambda n: n.onset)
-    # Sounding time (sum of note durations), not piece.duration_seconds:
-    # the reference spreadsheet's percentages are of time actually sung,
-    # not of the piece's total extent. 25.607 / 164.57 = 15.56%, matching
-    # the sheet's figure for aria I exactly.
-    sounding = sum(n.duration_seconds or 0.0 for n in notes)
+    notes = sorted(part.notes, key=lambda n: (n.onset, n.midi))
+    # Sounding time, not piece.duration_seconds: the reference
+    # spreadsheet's percentages are of time actually sung, not of the
+    # piece's total extent. 25.607 / 164.57 = 15.56%, matching the sheet's
+    # figure for aria I exactly.
+    #
+    # Wall-clock sounding time (the union of the sounding intervals), not
+    # the sum of note durations. The two coincide on a monophonic line, so
+    # every corpus figure above is unaffected; they diverge wherever notes
+    # overlap, and there the sum exceeds elapsed time and is not something
+    # a percentage can honestly be taken of.
+    sounding = union_seconds(notes)
     out: dict[str, Any] = {}
 
     # A rest is invisible to this model as a Note, so a contiguous span
     # must also break at a rest long enough to count as a phrase gap —
     # otherwise two separate stints in a zone, with a breath between,
-    # would be overstated as one unbroken span. Reuse PartContext.phrases'
-    # own threshold and comparison (quarters, not seconds) so "a break"
-    # means the same thing everywhere in the pipeline.
-    phrase_break = [False] * len(notes)
-    for i in range(1, len(notes)):
-        gap = notes[i].onset - (notes[i - 1].onset + notes[i - 1].duration)
-        if gap >= PHRASE_GAP_QUARTERS:
-            phrase_break[i] = True
+    # would be overstated as one unbroken span. The break is derived by
+    # the same function PartContext.phrases uses (context.split_on_phrase_gaps),
+    # not merely with the same constant, so "a break" cannot drift between
+    # the two. It is applied here to every note including chord members,
+    # which is the note set this feature's dwell times are defined over
+    # (see the note-set rule in songfeat/features/base.py); phrases()
+    # applies it to the monophonic reduction, which is the note set
+    # phrasing is defined over.
+    segments = split_on_phrase_gaps(notes)
 
     for voice, registers in PASSAGGI.items():
         zones = list(registers.values())
         for register, zone in registers.items():
-            seconds = sum(
-                (n.duration_seconds or 0.0)
-                for n in notes
-                if in_zone(midi_to_hz(n.midi), zone)
-            )
+            in_register = [n for n in notes if in_zone(midi_to_hz(n.midi), zone)]
+            # Two readings, kept apart deliberately. `_seconds` is the sum
+            # of note durations: a cumulative dwell dose, the quantity the
+            # reference spreadsheet reports and the pinned ground truth.
+            # `_pct` is a share of wall-clock sounding time, so both its
+            # numerator and its denominator are unions -- a percentage has
+            # to be a proportion, and a dose over a wall-clock total is
+            # not bounded by 100.
+            seconds = sum((n.duration_seconds or 0.0) for n in in_register)
             out[f"pass_{voice}_{register}_seconds"] = round(seconds, 2)
             out[f"pass_{voice}_{register}_pct"] = (
-                round(100.0 * seconds / sounding, 2) if sounding else 0.0
+                round(100.0 * union_seconds(in_register) / sounding, 2)
+                if sounding else 0.0
             )
 
         # "Inside" means inside any of the voice's three registers — the
@@ -130,12 +143,20 @@ def passaggi(part: Part, piece: Piece) -> dict[str, Any]:
             2,
         )
 
-        longest = current = 0.0
-        for i, (note, inside) in enumerate(zip(notes, inside_flags)):
-            if phrase_break[i]:
-                current = 0.0
-            current = current + (note.duration_seconds or 0.0) if inside else 0.0
-            longest = max(longest, current)
+        # The longest unbroken stint inside the voice's territory, in
+        # elapsed seconds. Accumulating note durations instead would let a
+        # chordal part report a 40-second span inside a ten-second piece;
+        # the union of the stint's intervals cannot outlast the piece.
+        longest = 0.0
+        for segment in segments:
+            stint: list = []
+            for note in segment:
+                if any(in_zone(midi_to_hz(note.midi), z) for z in zones):
+                    stint.append(note)
+                else:
+                    longest = max(longest, union_seconds(stint))
+                    stint = []
+            longest = max(longest, union_seconds(stint))
         out[f"pass_{voice}_longest_span_seconds"] = round(longest, 2)
 
     return out

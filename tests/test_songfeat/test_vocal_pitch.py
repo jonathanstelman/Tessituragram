@@ -207,3 +207,83 @@ def test_vocal_load_with_unknown_piece_duration_returns_none_rest():
     assert out["rest_ratio"] is None
     assert out["cycle_dose"] is not None
     assert out["time_dose_seconds"] == pytest.approx(2.0)
+
+
+# --- Fix round 3: rest is a wall-clock quantity -----------------------------
+
+def chordal(total_seconds: float, *chords) -> tuple[Part, Piece]:
+    """chords are (onset_seconds, duration_seconds, midi...) tuples."""
+    notes = []
+    for onset, seconds, *pitches in chords:
+        for midi in pitches:
+            notes.append(Note(
+                midi=midi, onset=onset * 2, duration=seconds * 2, part=0,
+                onset_seconds=onset, duration_seconds=seconds,
+                is_chord_member=len(pitches) > 1,
+            ))
+    part = Part(index=0, notes=notes)
+    piece = Piece(source_path="x.mid", source_format="midi", parts=[part],
+                  duration_seconds=total_seconds)
+    return part, piece
+
+
+def test_rest_subtracts_wall_clock_sounding_time_not_the_duration_sum():
+    """A chord's members overlap, so summing their durations over-counts.
+
+    One four-note chord of 1 s in a 10 s piece occupies 1 s of elapsed
+    time; the duration sum is 4 s. Rest is 9 s. Subtracting the sum gives
+    6 s, which is not a measurement of anything.
+    """
+    part, piece = chordal(10.0, (0.0, 1.0, 60, 64, 67, 72))
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["rest_seconds"] == pytest.approx(9.0)
+    assert out["rest_ratio"] == pytest.approx(0.9)
+
+
+def test_time_dose_stays_the_duration_sum():
+    """Cumulative phonatory dose is deliberately a sum, not a union: each
+    voice of a chord really does phonate. Only `rest` changes."""
+    part, piece = chordal(10.0, (0.0, 1.0, 60, 64, 67, 72))
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["time_dose_seconds"] == pytest.approx(4.0)
+
+
+def test_a_saturated_chordal_part_reports_zero_rest_as_a_real_measurement():
+    """The clamp's worst case: a chord repeated through the whole piece.
+
+    The old code reached rest_seconds == 0.0 only because max(..., 0.0)
+    hid a -30 s subtraction. Here the union genuinely fills the piece, so
+    0.0 is the true answer and must still be reported as one.
+    """
+    chords = [(float(i), 1.0, 60, 64, 67, 72) for i in range(10)]
+    part, piece = chordal(10.0, *chords)
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["time_dose_seconds"] == pytest.approx(40.0)
+    assert out["rest_seconds"] == pytest.approx(0.0)
+    assert out["rest_ratio"] == pytest.approx(0.0)
+    assert out["rest_undefined_reason"] is None
+
+
+def test_rest_is_none_with_a_reason_when_sounding_exceeds_the_total():
+    """An impossible input must not produce a plausible zero.
+
+    The clamp turned "the numbers do not add up" into "there is no rest".
+    Per the project rule, an undefined quantity is None and says why.
+    """
+    part, piece = chordal(1.0, (0.0, 5.0, 60))
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["rest_seconds"] is None
+    assert out["rest_ratio"] is None
+    # The reason must carry the two numbers that did not add up, so the
+    # inconsistency is diagnosable from the output row alone.
+    assert "5s" in out["rest_undefined_reason"]
+    assert "1s" in out["rest_undefined_reason"]
+
+
+def test_rest_is_none_with_a_reason_when_the_total_is_unknown():
+    part, piece = chordal(10.0, (0.0, 1.0, 60))
+    piece.duration_seconds = None
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["rest_seconds"] is None
+    assert out["rest_ratio"] is None
+    assert "unknown" in out["rest_undefined_reason"].lower()

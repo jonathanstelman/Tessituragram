@@ -199,6 +199,29 @@ def load(path: str, drop_trailing_marker: bool = False) -> Piece:
     except Exception as exc:  # music21 raises a wide variety of errors
         raise ParseError(f"music21 could not parse {path}: {exc}") from exc
 
+    if isinstance(parsed, stream.Opus):
+        # music21 returns an Opus for a multi-tune ABC or Humdrum file, and
+        # multi-tune is ABC's normal shape. An Opus is not a Score, so the
+        # fallback below would wrap the whole collection as a single part:
+        # 50 unrelated tunes pooled into one row, with a "compositional
+        # range" spanning all of them, a "duration" that is their total, and
+        # every tessitura quartile and passaggio dwell averaged across the
+        # lot -- confidently, with no error, warning or null.
+        #
+        # Future work: iterate the opus into one Piece per score, which is
+        # the better answer. Refusing is the honest answer until then,
+        # because pipeline.run reports and skips a ParseError per the error
+        # contract, and a skipped file is recoverable where a pooled row is
+        # not.
+        raise ParseError(
+            f"{path} is a multi-tune file: music21 parsed it as an Opus of "
+            f"{len(parsed.scores)} score(s), and songfeat analyses one piece "
+            "per file. Pooling them into one record would report a range, "
+            "duration and tessitura spanning unrelated pieces. Split the "
+            "file into one tune per file. (Analysing each score of an opus "
+            "separately is planned but not implemented.)"
+        )
+
     score = parsed if isinstance(parsed, stream.Score) else stream.Score([parsed])
     m21_parts = list(score.parts) or [score]
 

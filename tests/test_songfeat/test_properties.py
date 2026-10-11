@@ -108,15 +108,22 @@ def test_passaggio_percentages_never_exceed_one_hundred(records):
 
 
 def test_phrase_time_does_not_exceed_total_time(records):
+    """Bounded by the piece's own duration, not by sounding + rest.
+
+    The old bound was `time_dose_seconds + rest_seconds`, which under the
+    `max(total - sum, 0.0)` clamp equalled `max(sum, total)`: the bound
+    inflated in lockstep with the duration sum's over-count, so no amount
+    of over-counting could make it fail. The piece's total duration is an
+    independent quantity, so this can now actually fail.
+    """
     seen = 0
     for record in records:
         longest = record.features["phrase_longest_seconds"]
-        sounding = record.features["time_dose_seconds"]
-        rest = record.features["rest_seconds"]
-        if None in (longest, sounding, rest):
+        total = record.features["duration_seconds"]
+        if None in (longest, total):
             continue
         seen += 1
-        assert longest <= sounding + rest + 0.01, record.source_path
+        assert longest <= total + 0.01, record.source_path
     assert seen, "no phrase durations were checked"
 
 
@@ -310,3 +317,114 @@ def test_a_genuinely_low_part_keeps_its_trailing_marker(marker_pairs):
                 path, kept_part.index
             )
     assert seen, "no genuinely-low part was found anywhere in the corpus"
+
+
+# --- Fix round 3: wall-clock sounding time ---------------------------------
+
+@pytest.fixture(scope="module")
+def sounding_cases():
+    """(label, notes, piece_total) for every sample part, plus a chord.
+
+    The corpus alone cannot falsify the invariant below. 74 of its 150
+    arias do overlap, so a duration sum over-counts elapsed sounding time
+    (worst: 96-XCVI.mid, by 29.3 s), but no corpus file overlaps enough
+    for that sum to pass the piece's total — so substituting the sum for
+    the union would leave a corpus-only test still passing, and the test
+    would be asserting nothing about the distinction it exists to police.
+    A chord-saturated part is appended for exactly that reason: it is the
+    shape (any chordal or divisi part) where the sum provably exceeds the
+    total, and it makes this property able to fail.
+    """
+    from songfeat.loaders import load
+    from songfeat.model import Note, Part, Piece
+
+    cases = []
+    for path in SAMPLE:
+        piece = load(path, drop_trailing_marker=True)
+        for part in piece.parts:
+            cases.append((path, part.notes, piece.duration_seconds))
+
+    notes = [
+        Note(midi=midi, onset=float(second) * 2, duration=2.0, part=0,
+             onset_seconds=float(second), duration_seconds=1.0,
+             is_chord_member=True)
+        for second in range(10)
+        for midi in (60, 64, 67, 72)
+    ]
+    synthetic = Part(index=0, notes=notes)
+    cases.append((
+        "<synthetic four-note chord repeated through a 10 s piece>",
+        synthetic.notes,
+        10.0,
+    ))
+    return cases
+
+
+def test_wall_clock_sounding_time_never_exceeds_the_piece_total(sounding_cases):
+    """The invariant that would have caught the rest-time error.
+
+    A part cannot sound for longer than its piece lasts. Replace
+    `union_seconds` with `sum(n.duration_seconds ...)` and the synthetic
+    chordal case reports 40 s of sounding in a 10 s piece, failing here.
+    """
+    from songfeat.context import union_seconds
+
+    assert len(sounding_cases) == len(SAMPLE) + 1, len(sounding_cases)
+    for label, notes, total in sounding_cases:
+        assert union_seconds(notes) <= total + 0.01, label
+
+
+def test_the_duration_sum_really_does_over_count_on_this_corpus(sounding_cases):
+    """Guards the test above from being a tautology.
+
+    If union and sum agreed everywhere, the invariant would hold under
+    either definition and prove nothing. They must measurably differ.
+    """
+    from songfeat.context import union_seconds
+
+    differing = [
+        label for label, notes, _ in sounding_cases
+        if sum(n.duration_seconds or 0.0 for n in notes) - union_seconds(notes) > 0.01
+    ]
+    assert differing, "no sample part overlaps; the union/sum distinction is untested"
+
+
+def test_rest_and_sounding_time_account_for_the_whole_piece(records):
+    """rest_seconds is the piece's total minus wall-clock sounding time,
+    with no clamp in between, so the two must close exactly."""
+    from songfeat.context import union_seconds
+    from songfeat.loaders import load
+
+    seen = 0
+    for path in SAMPLE:
+        piece = load(path, drop_trailing_marker=True)
+        for part in piece.parts:
+            record = next(
+                r for r in records
+                if r.source_path == path and r.part_index == part.index
+            )
+            rest = record.features["rest_seconds"]
+            if rest is None:
+                continue
+            seen += 1
+            assert union_seconds(part.notes) + rest == pytest.approx(
+                piece.duration_seconds, abs=0.02
+            ), path
+    assert seen, "no rest values were checked"
+
+
+def test_passaggio_spans_never_exceed_the_piece_total(records):
+    """A dwell span is elapsed time, so it is bounded by the piece.
+
+    The old accumulator summed chord members' durations, which on a
+    chordal part reports a span longer than the music.
+    """
+    checked = _checked([
+        (r.source_path, name, value, r.features["duration_seconds"])
+        for r in records
+        for name, value in r.features.items()
+        if name.endswith("_longest_span_seconds") and value is not None
+        and r.features["duration_seconds"] is not None
+    ])
+    for path, name, value, total in checked:
+        assert value <= total + 0.01, (path, name, value, total)

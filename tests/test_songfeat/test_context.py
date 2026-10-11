@@ -1,3 +1,5 @@
+import pytest
+
 from songfeat.context import PartContext
 from songfeat.model import KeyMark, Note, Part, Piece
 
@@ -65,3 +67,72 @@ def test_prevailing_key_is_the_last_mark_at_or_before_the_onset():
 def test_derivations_are_computed_once():
     ctx = PartContext(*part_of((60, 0, 1), (64, 1, 1)))
     assert ctx.intervals is ctx.intervals
+
+
+# --- wall-clock sounding time vs the sum of durations -----------------------
+
+def test_union_seconds_counts_overlap_once():
+    """A duration sum counts an overlapped stretch once per voice.
+
+    Four simultaneous one-second notes sum to 4.0 s but occupy 1.0 s of
+    elapsed time. The union is the only reading a piece's total duration
+    can legally be compared against.
+    """
+    from songfeat.context import union_seconds
+
+    part, _ = part_of((60, 0, 2), (64, 0, 2), (67, 0, 2), (72, 0, 2))
+    assert sum(n.duration_seconds for n in part.notes) == 4.0
+    assert union_seconds(part.notes) == 1.0
+
+
+def test_union_seconds_equals_the_duration_sum_on_a_monophonic_line():
+    """The two readings must agree where nothing overlaps, or the fix
+    would move every monophonic value in the corpus."""
+    from songfeat.context import union_seconds
+
+    part, _ = part_of((60, 0, 1), (62, 1, 1), (64, 2, 1))
+    assert union_seconds(part.notes) == pytest.approx(
+        sum(n.duration_seconds for n in part.notes)
+    )
+
+
+def test_union_seconds_merges_partial_overlap_without_double_counting():
+    """A sustained note under a moving one: 0-2 s and 1-3 s is 3 s of
+    elapsed sound, not 4."""
+    from songfeat.context import union_seconds
+
+    part, _ = part_of((60, 0, 4), (67, 2, 4))
+    assert union_seconds(part.notes) == 3.0
+
+
+def test_union_seconds_keeps_a_rest_as_a_gap():
+    """Separated intervals must not be merged, or every part would read as
+    sounding from its first onset to its last release."""
+    from songfeat.context import union_seconds
+
+    part, _ = part_of((60, 0, 2), (62, 8, 2))
+    assert union_seconds(part.notes) == 2.0
+
+
+def test_union_seconds_of_nothing_is_zero():
+    from songfeat.context import union_seconds
+
+    assert union_seconds([]) == 0.0
+
+
+def test_sounding_seconds_is_the_union_not_the_sum():
+    ctx = PartContext(*part_of((60, 0, 2), (64, 0, 2), (67, 0, 2)))
+    assert ctx.sounding_seconds == 1.0
+
+
+def test_split_on_phrase_gaps_is_the_shared_break_derivation():
+    """`passaggi` and `PartContext.phrases` must infer a break from the
+    same function, not merely share the constant."""
+    from songfeat.context import split_on_phrase_gaps
+
+    part, piece = part_of((60, 0, 1), (62, 1, 1), (64, 4, 1), (65, 5, 1))
+    ctx = PartContext(part, piece)
+    assert [len(g) for g in split_on_phrase_gaps(part.notes)] == [2, 2]
+    assert [[n.midi for n in g] for g in split_on_phrase_gaps(ctx.monophonic)] == [
+        [n.midi for n in g] for g in ctx.phrases
+    ]
