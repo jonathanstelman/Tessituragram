@@ -51,7 +51,11 @@ def test_schema_matches_registered_fields():
 def test_schema_can_filter_by_group():
     from songfeat.record import FeatureRecord
 
-    assert schema(["basic"]) == schema()
+    # Other groups (jsymbolic, native) are registered too (Task 8), so
+    # filtering to "basic" now yields a strict subset of the full schema.
+    basic_only, everything = schema(["basic"]), schema()
+    assert set(basic_only) < set(everything)
+    assert basic_only[: len(FeatureRecord.IDENTITY)] == list(FeatureRecord.IDENTITY)
     # Identity columns are always present; an unmatched group adds nothing else.
     assert schema(["nonexistent"]) == list(FeatureRecord.IDENTITY)
 

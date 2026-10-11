@@ -2,6 +2,9 @@
 
 from . import basic  # noqa: F401  (registers the basic features on import)
 from .base import FeatureSpec, extract_part, extract_piece, feature, groups, registry, schema
+from .music21_adapter import register_music21_features
+
+register_music21_features()
 
 __all__ = [
     "FeatureSpec",
