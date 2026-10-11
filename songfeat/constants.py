@@ -31,3 +31,9 @@ RUN_MAX_NOTE_QUARTERS = 0.5
 
 #: An interval of this many semitones or more is a leap.
 LEAP_MIN_SEMITONES = 3
+
+#: A phrase this long or longer counts as a breath demand. A configurable
+#: threshold, not a measured constant: there is no physiological source
+#: for 8 seconds specifically, only the intuition that a sustained line
+#: this long starts to tax breath support.
+BREATH_DEMAND_SECONDS = 8.0

@@ -10,7 +10,12 @@ from __future__ import annotations
 from functools import cached_property
 from itertools import groupby
 
-from .constants import PHRASE_GAP_QUARTERS, SUSTAINED_MIN_SECONDS
+from .constants import (
+    PHRASE_GAP_QUARTERS,
+    RUN_MAX_NOTE_QUARTERS,
+    RUN_MIN_NOTES,
+    SUSTAINED_MIN_SECONDS,
+)
 from .model import KeyMark, Note, Part, Piece
 
 
@@ -52,6 +57,27 @@ class PartContext:
             else:
                 phrases[-1].append(current)
         return phrases
+
+    @cached_property
+    def runs(self) -> list[list[Note]]:
+        """Maximal stretches of consecutive short notes.
+
+        A run is RUN_MIN_NOTES or more notes in a row, each no longer than
+        RUN_MAX_NOTE_QUARTERS, with no phrase-breaking rest between them.
+        """
+        found: list[list[Note]] = []
+        for phrase in self.phrases:
+            current: list[Note] = []
+            for note in phrase:
+                if note.duration <= RUN_MAX_NOTE_QUARTERS:
+                    current.append(note)
+                else:
+                    if len(current) >= RUN_MIN_NOTES:
+                        found.append(current)
+                    current = []
+            if len(current) >= RUN_MIN_NOTES:
+                found.append(current)
+        return found
 
     @cached_property
     def sustained(self) -> list[Note]:
