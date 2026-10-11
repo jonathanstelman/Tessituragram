@@ -2,8 +2,9 @@
 
 **Date:** 2026-10-10
 **Status:** approved design, not yet planned
-**Scope of this spec:** library + CLI, validated. HTTP API, caching, parallelism,
-composite scoring and any front-end are explicitly out and get their own specs.
+**Scope of this spec:** library + CLI + output adapters, validated. Serving over
+HTTP, caching, parallelism, composite scoring and any front-end are explicitly
+out and get their own specs.
 
 ## Purpose
 
@@ -31,7 +32,8 @@ methods. That shapes two decisions that run through the whole design:
    description, and a citation where one exists.
 4. Adding a feature is a local change: one function, one registration, one test.
 5. Nothing silently produces a wrong number. A failing feature nulls its own
-   fields and records the error; a failing file is reported and skipped.
+   fields and records the reason against its name; a failing file is reported
+   and skipped.
 
 ## Non-goals
 
@@ -83,9 +85,8 @@ than emitting a plausible-looking wrong number.
 
 ### Output shape
 
-Tidy data: one row per part. Identifying columns first --- `source_path`,
-`part_index`, `part_name`, `is_vocal_candidate`, `vocal_confidence` --- then the
-feature block in stable registry order, so a schema change is visible in a diff.
+One record per part. The record is a typed object, not a dict that happens to
+become a CSV row --- see Output below.
 
 ## Vocal line detection
 
@@ -175,6 +176,84 @@ from MusicXML, which carries real accidentals. Availability is therefore a
 property of the input format, recorded in feature metadata and surfaced by
 `profile`.
 
+## Output
+
+The pipeline produces typed records and hands them to a sink. Serialisation is
+never done by the extraction code.
+
+### The record
+
+A Pydantic model, so the same object validates, serialises to JSON, and later
+becomes an API response body without translation:
+
+```python
+class FeatureRecord(BaseModel):
+    source_path: str
+    source_format: str
+    part_index: int
+    part_name: str | None
+    is_vocal_candidate: bool
+    vocal_confidence: float
+    features: dict[str, float | int | str | bool | None]
+    errors: dict[str, str] = {}
+
+    def flat(self) -> dict[str, Any]:
+        """Identity fields merged with features, for tabular sinks."""
+```
+
+Identity fields are typed explicitly; the ~210 feature columns stay a mapping
+rather than 210 model fields, because they are registry-driven and change as
+features are added. `flat()` produces the wide row that tabular sinks want, in
+stable registry order, so a schema change shows up in a diff.
+
+Pydantic v2 becomes a dependency. It is not currently in `requirements.txt`.
+
+### The sink protocol
+
+```python
+class Sink(Protocol):
+    def open(self, schema: list[str]) -> None: ...
+    def write(self, record: FeatureRecord) -> None: ...
+    def close(self) -> None: ...
+```
+
+Streaming rather than collect-then-dump: a long batch can be consumed while it
+runs, and the same shape serves a streaming API response later. The schema is
+known from the registry before any file is parsed, so sinks that need a header
+up front (CSV, Sheets) get one without a first pass.
+
+Implementations in scope:
+
+| Sink | Notes |
+|---|---|
+| `CsvSink` | wide rows via `flat()` |
+| `JsonSink` | single array, convenient for small runs |
+| `JsonlSink` | one record per line; the default for large batches |
+| `SheetsSink` | appends rows to a Google Sheet |
+| `MemorySink` | for tests |
+
+### Google Sheets
+
+The first non-file destination, and the reason the abstraction exists now
+rather than later. Practical constraints to respect:
+
+- Credentials come from a service account referenced by environment variable.
+  Never committed, never logged.
+- Rows are appended in batches, not one call per row --- the API quota is per
+  minute and per user, and 150 files times several parts is enough to hit it.
+- The header row is written on open only when the target sheet is empty.
+- An optional key column (`source_path` plus `part_index`) supports re-running
+  without duplicating rows.
+- The Google client is an optional dependency. Importing `songfeat` must not
+  require it; only constructing a `SheetsSink` does.
+
+### Serving over an API
+
+Out of scope here, and deliberately so. The design obligation this spec accepts
+is narrower: `FeatureRecord` must serialise cleanly to JSON and expose a JSON
+Schema, so that an API spec later adds a transport rather than reshaping the
+core.
+
 ## Validation
 
 Three layers, because the reference data and the reference implementation do
@@ -239,8 +318,9 @@ visible on the first run instead of after a modelling cycle.
 
 ```
 songfeat <paths...>                 files or folders
-  -o, --out PATH                    .csv or .json, inferred from extension
-  -f, --format {json,csv}
+  -o, --out PATH                    path, or a Sheets URL/id
+  -f, --format {json,jsonl,csv,sheets}
+                                    inferred from --out when omitted
   -g, --groups basic,vocal          comma-separated groups
       --drop-trailing-marker        ignore the corpus reference pitch
       --no-recursive
@@ -254,9 +334,14 @@ songfeat validate <corpus>          ground-truth comparison report
 
 ## Error handling
 
-Unchanged in principle from what is built: a failing extractor nulls its own
-fields and records `_error_<name>`; a failing file is reported to stderr and
-skipped; a run that produces at least one record exits 0.
+A failing extractor nulls its own fields and records the reason in the record's
+`errors` mapping, keyed by feature name. A failing file is reported to stderr
+and skipped. A run producing at least one record exits 0.
+
+Tabular sinks need errors as columns rather than a nested mapping, so `flat()`
+emits one `_error_<name>` column per feature that actually failed in the run.
+JSON and JSONL sinks keep the nested `errors` mapping. This replaces the
+`_error_<name>` dict keys used by the currently committed implementation.
 
 ## Testing strategy
 
@@ -277,3 +362,6 @@ skipped; a run that produces at least one record exits 0.
 - Both quantile weightings emitted rather than choosing one before the evidence
   is in.
 - No composite difficulty score in this scope.
+- Output is a typed Pydantic record handed to a sink, not a dict serialised in
+  place. Google Sheets is the first non-file sink; serving over an API is
+  designed for but out of scope.
