@@ -108,3 +108,11 @@ def test_parser_defaults():
     args = build_parser().parse_args([ARIA])
     assert args.drop_trailing_marker is False
     assert args.format is None
+
+
+def test_sheets_format_without_out_is_a_usage_error_not_a_crash(capsys):
+    # No -o, so make_sink has no spreadsheet id/URL to work with; this must
+    # not fall through to a bare TypeError from `"..." in None`, and must
+    # not attempt to construct a real SheetsSink (no creds are configured).
+    with pytest.raises(SystemExit):
+        main([ARIA, "-g", "basic", "-q", "-f", "sheets"])

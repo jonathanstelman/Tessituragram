@@ -65,8 +65,10 @@ def test_rows_are_appended_in_batches_not_one_call_each():
         sink.open(SCHEMA)
         for i in range(6):
             sink.write(record(i))
-    # Two batches of three, plus the header write.
-    assert worksheet.append_calls <= 3
+    # Exactly: the header write, plus two batches of three mid-stream.
+    # A looser bound (e.g. <=) would also pass an implementation that
+    # ignores batch_size and dumps everything in one flush at close().
+    assert worksheet.append_calls == 3
 
 
 def test_remaining_rows_are_flushed_on_close():
@@ -93,14 +95,36 @@ def test_missing_feature_becomes_an_empty_cell():
     assert worksheet.rows[1][-1] == ""
 
 
-def test_importing_songfeat_does_not_require_the_google_client():
-    """The optional dependency must not leak into the package import."""
+def test_mismatched_header_raises_instead_of_appending_misaligned_rows():
+    worksheet = FakeWorksheet([["source_path", "part_index", "max_midi"]])
+    with sink_with(worksheet) as sink:
+        with pytest.raises(ValueError):
+            sink.open(SCHEMA)
+    assert worksheet.rows == [["source_path", "part_index", "max_midi"]]
+
+
+def test_importing_the_sheets_module_does_not_require_the_google_client():
+    """Proves the import is lazy, not merely that `import songfeat` works.
+
+    `import songfeat` never touches `songfeat.sinks` at all (see
+    songfeat/__init__.py), so asserting on it would pass even for a
+    sheets.py with `import gspread` at module top level. Importing
+    songfeat.sinks.sheets directly, with gspread blocked, is the only way
+    to tell a lazy import (this must succeed) from an eager one (this
+    would raise before SheetsSink is ever touched).
+    """
     import subprocess
     import sys
-    code = (
-        "import sys; "
-        "sys.modules['gspread'] = None; "
-        "import songfeat; print('ok')"
-    )
+    code = """
+import sys
+sys.modules['gspread'] = None
+import songfeat.sinks.sheets
+print('import-ok')
+try:
+    songfeat.sinks.sheets.SheetsSink('sheet-id')
+except ImportError:
+    print('construct-failed')
+"""
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
-    assert "ok" in result.stdout
+    assert "import-ok" in result.stdout, result.stderr
+    assert "construct-failed" in result.stdout, result.stderr

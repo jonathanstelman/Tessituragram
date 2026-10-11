@@ -63,8 +63,27 @@ class SheetsSink(BaseSink):
         self._worksheet = self._client.open_by_key(
             self.spreadsheet_id
         ).worksheet(self.worksheet_title)
-        if not self._worksheet.get_all_values():
+        existing = self._worksheet.get_all_values()
+        if not existing:
             self._worksheet.append_rows([self.schema], value_input_option="RAW")
+            return
+        header = existing[0]
+        if header != self.schema:
+            # A silent append under a mismatched header lands data in the
+            # wrong columns of a sheet someone else may be reading right
+            # now. Refusing is recoverable; appending anyway is not, so
+            # this raises instead of trying to migrate or reconcile it.
+            diff = next(
+                (i for i, pair in enumerate(zip(header, self.schema)) if pair[0] != pair[1]),
+                min(len(header), len(self.schema)),
+            )
+            got = header[diff] if diff < len(header) else "<missing>"
+            want = self.schema[diff] if diff < len(self.schema) else "<missing>"
+            raise ValueError(
+                f"Sheet header does not match schema: sheet has {len(header)} "
+                f"column(s), schema has {len(self.schema)}; first difference "
+                f"at column {diff} ({got!r} != {want!r})."
+            )
 
     def write(self, record: FeatureRecord) -> None:
         row = record.flat()

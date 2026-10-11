@@ -35,6 +35,8 @@ def make_sink(out: str | None, fmt: str | None):
         fmt = {".csv": "csv", ".json": "json", ".jsonl": "jsonl"}.get(ext, "jsonl")
     fmt = fmt or "jsonl"
     if fmt == "sheets":
+        if not out:
+            raise SystemExit("--format sheets requires -o/--out with a spreadsheet id or URL")
         from .sinks.sheets import SheetsSink
         key = out
         if "docs.google.com" in out:
