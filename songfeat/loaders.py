@@ -8,10 +8,9 @@ trailing C1 reference note that the original Tessituragram CLI expects.
 from __future__ import annotations
 
 import os
-from typing import Iterable
 
 from music21 import chord as m21_chord
-from music21 import converter, instrument, key, meter, note as m21_note, stream, tempo
+from music21 import converter, instrument, key, meter, stream, tempo
 
 from .model import KeyMark, MeterMark, Note, Part, Piece, TempoMark
 
@@ -90,18 +89,13 @@ def _part_label(part: stream.Part) -> tuple[str | None, str | None]:
     return name, instrument_name
 
 
-def _iter_pitched(container) -> Iterable:
-    """Yield Note and Chord objects in offset order."""
-    return container.recurse().notes
-
-
 def _collect_notes(
     parts: list[stream.Part], tempo_map: list[tuple[float, float]]
-) -> list[Note]:
-    notes: list[Note] = []
+) -> list[list[Note]]:
+    per_part: list[list[Note]] = []
     for index, part in enumerate(parts):
-        flat = part.flatten()
-        for element in _iter_pitched(flat):
+        collected: list[Note] = []
+        for element in part.flatten().recurse().notes:
             onset = float(element.offset)
             duration = float(element.duration.quarterLength)
             onset_seconds = quarters_to_seconds(onset, tempo_map)
@@ -109,36 +103,27 @@ def _collect_notes(
                 quarters_to_seconds(onset + duration, tempo_map) - onset_seconds
             )
             lyric = getattr(element, "lyric", None) or None
-
-            if isinstance(element, m21_chord.Chord):
-                members = element.pitches
-                for pitch in members:
-                    notes.append(
-                        Note(
-                            midi=int(pitch.midi),
-                            onset=onset,
-                            duration=duration,
-                            part=index,
-                            onset_seconds=onset_seconds,
-                            duration_seconds=duration_seconds,
-                            lyric=lyric,
-                            is_chord_member=len(members) > 1,
-                        )
-                    )
-            elif isinstance(element, m21_note.Note):
-                notes.append(
+            pitches = (
+                element.pitches
+                if isinstance(element, m21_chord.Chord)
+                else [element.pitch]
+            )
+            for pitch in pitches:
+                collected.append(
                     Note(
-                        midi=int(element.pitch.midi),
+                        midi=int(pitch.midi),
                         onset=onset,
                         duration=duration,
                         part=index,
                         onset_seconds=onset_seconds,
                         duration_seconds=duration_seconds,
                         lyric=lyric,
+                        is_chord_member=len(pitches) > 1,
                     )
                 )
-    notes.sort(key=lambda n: (n.onset, n.midi))
-    return notes
+        collected.sort(key=lambda n: (n.onset, n.midi))
+        per_part.append(collected)
+    return per_part
 
 
 def _collect_marks(score: stream.Score):
@@ -213,16 +198,20 @@ def load(path: str, drop_trailing_marker: bool = False) -> Piece:
     score = parsed if isinstance(parsed, stream.Score) else stream.Score([parsed])
     m21_parts = list(score.parts) or [score]
 
-    parts = []
-    for index, part in enumerate(m21_parts):
-        name, instrument_name = _part_label(part) if isinstance(part, stream.Part) else (None, None)
-        parts.append(Part(index=index, name=name, instrument=instrument_name))
-
     tempos, keys, meters = _collect_marks(score)
     tempo_map = build_tempo_map(tempos)
-    notes = _collect_notes(m21_parts, tempo_map)
-    if drop_trailing_marker:
-        notes = _drop_trailing_marker(notes)
+    per_part_notes = _collect_notes(m21_parts, tempo_map)
+    parts = []
+    for index, m21_part in enumerate(m21_parts):
+        name, instrument_name = (
+            _part_label(m21_part) if isinstance(m21_part, stream.Part) else (None, None)
+        )
+        notes = per_part_notes[index]
+        if drop_trailing_marker:
+            notes = _drop_trailing_marker(notes)
+        parts.append(
+            Part(index=index, name=name, instrument=instrument_name, notes=notes)
+        )
 
     quarter_length = float(score.duration.quarterLength) if score.duration else 0.0
     duration_seconds = quarters_to_seconds(quarter_length, tempo_map)
@@ -230,7 +219,6 @@ def load(path: str, drop_trailing_marker: bool = False) -> Piece:
     return Piece(
         source_path=path,
         source_format=source_format,
-        notes=notes,
         parts=parts,
         tempos=tempos,
         keys=keys,

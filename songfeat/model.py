@@ -34,13 +34,21 @@ class Note:
         return self.onset + self.duration
 
 
-@dataclass(frozen=True)
+@dataclass
 class Part:
-    """One instrumental or vocal line."""
+    """One instrumental or vocal line, owning its notes."""
 
     index: int
     name: str | None = None
     instrument: str | None = None
+    notes: list[Note] = field(default_factory=list)
+
+    def __len__(self) -> int:
+        return len(self.notes)
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.notes
 
 
 @dataclass(frozen=True)
@@ -75,7 +83,6 @@ class Piece:
 
     source_path: str
     source_format: str
-    notes: list[Note] = field(default_factory=list)
     parts: list[Part] = field(default_factory=list)
     tempos: list[TempoMark] = field(default_factory=list)
     keys: list[KeyMark] = field(default_factory=list)
@@ -96,5 +103,7 @@ class Piece:
     def is_empty(self) -> bool:
         return not self.notes
 
-    def notes_in_part(self, index: int) -> list[Note]:
-        return [n for n in self.notes if n.part == index]
+    @property
+    def notes(self) -> list[Note]:
+        """Every note across all parts. Piece-scoped features only."""
+        return [n for part in self.parts for n in part.notes]

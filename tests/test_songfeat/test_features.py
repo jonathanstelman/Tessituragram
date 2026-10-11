@@ -10,15 +10,18 @@ ARIA = os.path.join("data", "test_data_arias", "1-I.mid")
 
 
 def make_piece(**overrides) -> Piece:
-    base = dict(
-        source_path="synthetic.mid",
-        source_format="midi",
-        notes=[
+    notes = overrides.pop(
+        "notes",
+        [
             Note(midi=60, onset=0.0, duration=1.0, part=0),
             Note(midi=64, onset=1.0, duration=1.0, part=0),
             Note(midi=67, onset=2.0, duration=2.0, part=0),
         ],
-        parts=[Part(index=0, name="Voice")],
+    )
+    base = dict(
+        source_path="synthetic.mid",
+        source_format="midi",
+        parts=[Part(index=0, name="Voice", notes=notes)],
         tempos=[TempoMark(onset=0.0, bpm=120.0)],
         keys=[KeyMark(onset=0.0, sharps=0, mode="major")],
         meters=[MeterMark(onset=0.0, numerator=4, denominator=4)],

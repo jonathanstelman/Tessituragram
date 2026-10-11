@@ -128,3 +128,19 @@ def test_marker_removal_on_empty_input():
     from songfeat.loaders import _drop_trailing_marker
 
     assert _drop_trailing_marker([]) == []
+
+
+# --- per-part isolation -----------------------------------------------------
+
+def test_multipart_file_keeps_parts_separate(tmp_path):
+    from music21 import corpus, converter
+
+    out = tmp_path / "chorale.musicxml"
+    converter.parse(corpus.getWork("bach/bwv66.6")).write("musicxml", fp=str(out))
+    piece = load(str(out))
+    assert len(piece.parts) == 4
+    assert all(not p.is_empty for p in piece.parts)
+    # Soprano sits above bass; pooling would hide this.
+    assert max(n.midi for n in piece.parts[0].notes) > max(
+        n.midi for n in piece.parts[3].notes
+    )
