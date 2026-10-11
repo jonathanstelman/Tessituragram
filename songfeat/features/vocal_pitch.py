@@ -103,7 +103,7 @@ def tessitura(part: Part, piece: Piece) -> dict[str, Any]:
         "while ``rest_seconds`` subtracts wall-clock sounding time, which is "
         "the only quantity the piece's total duration can be compared "
         "against. The two differ on any overlapping part; "
-        "``rest_undefined_reason`` names why rest is null when it is."
+        "``rest_undefined_reason`` names why rest is null when it is, and also fires on a zero-length piece, where rest is a real 0.0 but its ratio has no denominator."
     ),
     fields=LOAD_FIELDS,
 )

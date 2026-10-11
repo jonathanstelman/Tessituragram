@@ -90,7 +90,7 @@ def test_no_currently_registered_feature_trips_the_vector_guard():
     """The by-name skip list (ruling T, part a) should already cover every
     vector-shaped extractor in this music21 version, so the defensive
     raise in ``_make_extractor`` (part b) is a backstop that should never
-    actually fire for the 98 that remain registered.
+    actually fire for the 90 that remain registered.
     """
     piece = load(ARIA, drop_trailing_marker=True)
     out = base.extract_part(piece.parts[0], piece, groups_filter=["jsymbolic", "native"])

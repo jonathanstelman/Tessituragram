@@ -227,14 +227,21 @@ def test_a_voices_three_registers_never_sum_past_one_hundred_percent():
     would not give this: two registers can sound in the same second."""
     part, piece = chordal(
         10.0,
-        (0.0, 1.0, 72, 60, 48),   # low voice: high, middle and low zones at once
-        (1.0, 1.0, 72, 60, 48),
+        # 523.25, 261.63 and 220.0 Hz: one note in each of the low
+        # voice's three registers at once, so the three shares saturate
+        # and the bound is reached rather than merely cleared. midi 48
+        # (130.8 Hz) sits below every zone and left 33 points of slack.
+        (0.0, 1.0, 72, 60, 57),
+        (1.0, 1.0, 72, 60, 57),
     )
     out = base.extract_part(part, piece, groups_filter=["vocal"])
     total = sum(
         out[f"pass_low_{register}_pct"] for register in ("high", "middle", "low")
     )
-    assert total <= 100.0 + 0.01, total
+    # 2.0 s of dose in each of the three registers against a 6.0 s total:
+    # 33.33% apiece after the 2-decimal rounding, so the partition is
+    # saturated and the 0.01 shortfall is that rounding, not headroom.
+    assert total == pytest.approx(99.99)
 
 
 def test_percentage_and_span_agree_on_a_monophonic_line():
