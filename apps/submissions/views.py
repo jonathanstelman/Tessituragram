@@ -5,6 +5,7 @@ from urllib.parse import urlencode
 import uuid
 
 from django.core.files import File
+from django.conf import settings
 from django.core.mail import send_mail
 from django.http import Http404
 from django.urls import reverse
@@ -28,7 +29,6 @@ from apps.records.columns import (
 )
 from .forms import SubmissionForm, ReviewerEditForm
 
-NOTIFICATION_EMAIL = "tessituragram@tessituragram.com"
 
 def safe_filename_part(value):
     value = re.sub(r'[\\/:*?"<>|]', "-", str(value)).strip()
@@ -46,7 +46,7 @@ def notify_admins_of_submission(request, record):
             f"Review it here: {review_url}"
         ),
         from_email=None,
-        recipient_list=[NOTIFICATION_EMAIL],
+        recipient_list=[settings.NOTIFICATION_EMAIL],
     )
 
 

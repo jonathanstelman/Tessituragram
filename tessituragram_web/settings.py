@@ -29,6 +29,11 @@ EMAIL_BACKEND = os.environ.get(
 )
 DEFAULT_FROM_EMAIL = "no-reply@tessituragram.com"
 
+# Where new-submission review notices go. Override in .env for local testing.
+NOTIFICATION_EMAIL = os.environ.get(
+    "NOTIFICATION_EMAIL", "tessituragram@tessituragram.com"
+)
+
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get("SECRET_KEY")
 X_FRAME_OPTIONS = "SAMEORIGIN"
