@@ -57,3 +57,40 @@ def test_reference_cross_check_agrees_on_extremes():
     results = {c.quantity: c for c in compare_to_reference(CORPUS, limit=1)}
     assert results["ref Q0p"].within_tolerance
     assert results["ref Q4p"].within_tolerance
+
+
+def test_load_ground_truth_disambiguates_passaggio_blocks():
+    """Fix round 1, ruling AG.
+
+    'Hp tp'/'Mp tp'/'Lp tp' repeat once per voice-type block (LV/MV/HV
+    passaggi); a flat label->value dict used to keep only the last block's
+    value under each key. Values read off the sheet by hand (see
+    ground-truth-layout.md) must now survive as three distinct entries.
+    """
+    truth = load_ground_truth(XLSX)["I"]
+    assert truth["LV/Mp tp"] == pytest.approx(25.607142857142897, abs=1e-6)
+    assert truth["MV/Mp tp"] == pytest.approx(21.321428571428612, abs=1e-6)
+    assert truth["HV/Mp tp"] == pytest.approx(0.6785714285714286, abs=1e-6)
+    assert len({truth["LV/Mp tp"], truth["MV/Mp tp"], truth["HV/Mp tp"]}) == 3
+
+
+def test_compare_reports_passaggio_quantities():
+    """Fix round 1, ruling AG: the shipped harness must measure passaggio
+    agreement itself, not rely on an uncommitted scratch script."""
+    results = {c.quantity: c for c in compare(CORPUS, XLSX, arias=["I"])}
+    assert "LV/Mp tp" in results
+    assert "MV/Mp tp" in results
+    assert "HV/Mp tp" in results
+    # Distinguishable expected values prove compare() is reading the
+    # disambiguated ground truth, not three entries that collapsed to one.
+    assert results["LV/Mp tp"].expected != results["HV/Mp tp"].expected
+
+
+def test_total_time_pair_is_none_when_a_component_is_unmeasurable():
+    """Fix round 1, ruling AH: a None component (duration unknown) must not
+    be substituted with zero -- that would read as perfect agreement."""
+    from songfeat.validation import _total_time
+
+    assert _total_time(120.0, None) is None
+    assert _total_time(None, 30.0) is None
+    assert _total_time(120.0, 30.0) == pytest.approx(150.0)

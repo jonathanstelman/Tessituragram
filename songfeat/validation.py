@@ -15,11 +15,35 @@ import pandas as pd
 from .features import base
 from .loaders import load
 
-#: Labels in column 9 of each aria sheet, paired with the value to their right.
+#: Labels in column 10 of each aria sheet, paired with the value in column 11
+#: (ground-truth-layout.md; an earlier revision of that file said 9 and 10,
+#: an off-by-one from a 0-indexed lookup -- load_ground_truth finds labels by
+#: value rather than by column, so that error never reached this code).
 GROUND_TRUTH_LABELS = (
     "t", "tr", "Fptp", "Q0p", "Q1p", "Q2p", "Q3p", "Q4p",
     "Hp tp", "Hp %p", "Mp tp", "Mp %p", "Lp tp", "Lp %p",
 )
+
+#: The sheet repeats a block of passaggio sub-labels once per voice type
+#: (low/medium/high voice), each preceded by one of these title cells one
+#: column to the left. Keyed by the two-letter code load_ground_truth folds
+#: into the disambiguated key (e.g. "LV/Mp tp"), because "Mp tp" alone
+#: collides across all three blocks and would keep only the last one seen.
+PASSAGGIO_BLOCK_TITLES = {
+    "LV passaggi": "LV", "MV passaggi": "MV", "HV passaggi": "HV",
+}
+
+#: Sub-labels that repeat per block and therefore need PASSAGGIO_BLOCK_TITLES
+#: folded into their key; the other GROUND_TRUTH_LABELS appear once per sheet.
+PASSAGGIO_SUBLABELS = {"Hp tp", "Hp %p", "Mp tp", "Mp %p", "Lp tp", "Lp %p"}
+
+#: Fix round 1, ruling AG: maps a block's two-letter code to the voice-type
+#: name songfeat's passaggi feature uses (songfeat/constants.py:PASSAGGI),
+#: and a register label to the register name within that voice type, so
+#: compare() can look up `pass_{voice}_{register}_seconds` for each of the
+#: nine block/register combinations.
+PASSAGGIO_BLOCK_TO_VOICE = {"LV": "low", "MV": "medium", "HV": "high"}
+PASSAGGIO_REGISTER_TO_SONGFEAT = {"Hp": "high", "Mp": "middle", "Lp": "low"}
 
 #: Absolute tolerances per quantity.
 TOLERANCES = {"t": 1.0, "tr": 1.0, "Fptp": 50.0}
@@ -43,6 +67,13 @@ def load_ground_truth(xlsx_path: str) -> dict[str, dict[str, float]]:
     value in whichever column holds it that row rather than by a fixed
     column offset -- a hard-coded (row, column) pair measured on one sheet
     is not guaranteed to hold on the other 149.
+
+    A block title ("LV passaggi" etc.) is tracked while scanning so its
+    six sub-labels ("Hp tp", "Mp tp", ...) can be folded into a key like
+    "LV/Mp tp" (fix round 1, ruling AG). Without that, the three blocks'
+    identically-named rows would collide on one flat dict key and silently
+    keep only the last block scanned (HV's) -- not a missing value that
+    would stand out, a wrong one that would look like a real comparison.
     """
     book = pd.ExcelFile(xlsx_path)
     truth: dict[str, dict[str, float]] = {}
@@ -51,15 +82,39 @@ def load_ground_truth(xlsx_path: str) -> dict[str, dict[str, float]]:
             continue
         frame = book.parse(sheet, header=None)
         values: dict[str, float] = {}
+        block: str | None = None
         for row in range(min(40, frame.shape[0])):
             for column in range(min(12, frame.shape[1] - 1)):
                 cell = frame.iat[row, column]
-                if isinstance(cell, str) and cell.strip() in GROUND_TRUTH_LABELS:
+                if not isinstance(cell, str):
+                    continue
+                text = cell.strip()
+                if text in PASSAGGIO_BLOCK_TITLES:
+                    block = PASSAGGIO_BLOCK_TITLES[text]
+                    continue
+                if text in GROUND_TRUTH_LABELS:
                     neighbour = frame.iat[row, column + 1]
                     if isinstance(neighbour, (int, float)):
-                        values[cell.strip()] = float(neighbour)
+                        key = f"{block}/{text}" if block and text in PASSAGGIO_SUBLABELS else text
+                        values[key] = float(neighbour)
         truth[sheet] = values
     return truth
+
+
+def _total_time(sounding: float | None, rest: float | None) -> float | None:
+    """Combine sounding and rest time into the piece's total, or None.
+
+    Fix round 1, ruling AH: ``out.get("rest_seconds", 0)`` only substitutes
+    0 when the *key* is absent, not when the feature legitimately computed
+    None (piece.duration_seconds unknown -- songfeat/model.py:79 makes that
+    case real, not missing). ``None + x`` would raise; silently treating a
+    None as 0 would be worse, since it reports an unmeasurable quantity as
+    if it agreed with the ground truth by luck. Either component missing
+    makes the total unmeasurable too.
+    """
+    if sounding is None or rest is None:
+        return None
+    return sounding + rest
 
 
 def _roman_to_path(corpus_dir: str, roman: str) -> str | None:
@@ -84,7 +139,7 @@ def compare(
         out = base.extract_part(piece.parts[0], piece, groups_filter=["vocal"])
 
         pairs = [
-            ("t", out.get("time_dose_seconds", 0) + out.get("rest_seconds", 0)),
+            ("t", _total_time(out.get("time_dose_seconds"), out.get("rest_seconds"))),
             ("tr", out.get("rest_seconds")),
             ("Fptp", out.get("cycle_dose")),
             ("Q0p", out.get("q0_hz")),
@@ -96,6 +151,13 @@ def compare(
             ("Q2p (count-weighted)", out.get("q2_hz_cnt")),
             ("Q3p (count-weighted)", out.get("q3_hz_cnt")),
         ]
+        # Fix round 1, ruling AG: the nine block/register passaggio dwell
+        # times, now that load_ground_truth keys them distinctly instead of
+        # collapsing the three blocks onto one "Hp tp"/"Mp tp"/"Lp tp" each.
+        for block, voice in PASSAGGIO_BLOCK_TO_VOICE.items():
+            for register, songfeat_register in PASSAGGIO_REGISTER_TO_SONGFEAT.items():
+                field = f"pass_{voice}_{songfeat_register}_seconds"
+                pairs.append((f"{block}/{register} tp", out.get(field)))
 
         for quantity, actual in pairs:
             label = quantity.split(" (")[0]
