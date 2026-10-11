@@ -109,8 +109,14 @@ def leaps(part: Part, piece: Piece) -> dict[str, Any]:
             1 for i in leap_indices
             if line[i + 1].midi <= extreme_low or line[i + 1].midi >= extreme_high
         ),
+        # Denominator is the *leap* count, not the interval count (unlike
+        # leap_share_gt2/gt4/gt7 above, whose denominator is `n` and so
+        # stays defined whenever this function runs at all). With zero
+        # leaps there is nothing for "share ascending" to divide, so this
+        # is the undefined case: None, not a 0.0 that would assert "all
+        # leaps descend" about leaps that do not exist.
         "leap_ascending_share": (
-            round(ascending / len(leap_indices), 6) if leap_indices else 0.0
+            round(ascending / len(leap_indices), 6) if leap_indices else None
         ),
         "n_leaps_crossing_passaggio": crossing,
         "interval_mean_abs": round(sum(sizes) / n, 3),

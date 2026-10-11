@@ -100,6 +100,22 @@ def test_empty_part_yields_none():
     assert out["nondiatonic_share"] is None
 
 
+def test_no_leaps_gives_none_ascending_share_but_real_zero_shares():
+    """leap_ascending_share divides by the *leap* count, which is zero here
+    -- undefined, not a measured "0% ascend". The gt2/gt4/gt7 shares divide
+    by the *interval* count, which is non-empty, so those stay real 0.0s,
+    and n_leaps_over_octave is a real 0 leap count. All-stepwise motion:
+    +2, +2, -2, -2.
+    """
+    part, piece = built([60, 62, 64, 62, 60])
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["leap_ascending_share"] is None
+    assert out["leap_share_gt2"] == 0.0
+    assert out["leap_share_gt4"] == 0.0
+    assert out["leap_share_gt7"] == 0.0
+    assert out["n_leaps_over_octave"] == 0
+
+
 # --- Reference values from data/test_data_arias/1-I.mid: a D-major
 # coloratura aria (analysed key "D major", 0.718 confidence, 2 sharps
 # notated), 454 notes spanning D2-E4 (MIDI 38-64). See the task-12 report
