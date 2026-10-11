@@ -3,7 +3,10 @@
 Every test here loops over the corpus sample, so an empty or partially
 loaded sample would make the whole file pass while asserting nothing.
 `test_the_sample_loaded` exists to make that failure loud, and the
-filtered tests count what they checked for the same reason.
+filtered tests count what they checked for the same reason. One
+exception: the `marker_pairs` fixture below scans the full corpus, not
+SAMPLE, because SAMPLE alone cannot exercise what its test checks -- see
+that fixture's docstring.
 """
 
 import os
@@ -203,12 +206,12 @@ def test_passaggio_percentages_sum_within_tolerance(records):
 
     Checked against PASSAGGI's edges plus the shared 0.1 Hz edge
     tolerance (``vocal_passaggi._EDGE_TOLERANCE_HZ``): the narrowest gap
-    between two adjacent zones for the same voice (medium voice's
-    low/middle boundary, 277.2-293.7 Hz) is 16.5 Hz, far wider than the
-    0.2 Hz the tolerance could bridge. So a single note's sounding time
-    lands in at most one of the three registers, and the three
-    percentages should sum to **at most** 100 -- not necessarily to 100,
-    since a singer can spend time outside all three zones of a given
+    between two adjacent zones for the same voice is the low voice's
+    low/middle boundary, 246.9-261.6 Hz, which is 14.7 Hz -- far wider
+    than the 0.2 Hz the tolerance could bridge. So a single note's
+    sounding time lands in at most one of the three registers, and the
+    three percentages should sum to **at most** 100 -- not necessarily to
+    100, since a singer can spend time outside all three zones of a given
     voice type.
 
     Tolerance: each `_pct` is independently rounded to 2 decimal places
@@ -245,9 +248,9 @@ def marker_pairs():
     exercised by SAMPLE. Three files in the full 150-file corpus do
     (18-XVIII.mid, 41-XLI.mid, 96-XCVI.mid -- each ends with the marker
     duplicated one note earlier). ``load()`` alone, with no feature
-    extraction, costs about 2s for all 150 files, so scanning the whole
-    corpus here is cheap and does not touch or widen SAMPLE, which stays
-    at 12 for every other test in this module.
+    extraction, costs about 3.6s for all 150 files (measured), so
+    scanning the whole corpus here is cheap and does not touch or widen
+    SAMPLE, which stays at 12 for every other test in this module.
     """
     from songfeat.loaders import load
 
@@ -264,7 +267,26 @@ def marker_pairs():
     return pairs
 
 
-def test_dropping_marker_never_raises_a_genuinely_low_part(marker_pairs):
+def test_a_genuinely_low_part_keeps_its_trailing_marker(marker_pairs):
+    """The falsifiable form of "dropping never raises the minimum pitch
+    of a part that genuinely sings that low" -- which, as a pitch
+    comparison between the kept and dropped loads, cannot actually fail.
+
+    ``_drop_trailing_marker`` drops the trailing note *iff* it is the
+    marker AND no other note sits at or below MIDI 24
+    (``others = [...]; if others: return notes, None``). A part that
+    "genuinely sings that low" is, by construction, exactly a part where
+    `others` is non-empty -- so for every row this test can reach, the
+    guard already refused to drop anything, and `kept` and `dropped`
+    are the same note list. Comparing their minimum pitches is then true
+    by identity, not by anything `_drop_trailing_marker` did: the
+    spec's scenario ("a drop that would have raised the minimum of a
+    genuinely low part") is structurally unreachable, because "drop
+    happens" and "genuinely low" never co-occur in this implementation.
+    That is the correct design -- it is *why* a genuine low C1 survives
+    -- but it means the only thing left to test is the refusal itself:
+    that nothing was dropped, and the marker is still there.
+    """
     from songfeat.loaders import REFERENCE_MARKER_MIDI
 
     seen = 0
@@ -283,9 +305,8 @@ def test_dropping_marker_never_raises_a_genuinely_low_part(marker_pairs):
             if low_count < 2:
                 continue
             seen += 1
-            kept_min = min(n.midi for n in kept_part.notes)
-            dropped_min = (
-                min(n.midi for n in dropped_part.notes) if dropped_part.notes else None
+            assert dropped_part.notes == kept_part.notes, (path, kept_part.index)
+            assert dropped_part.notes[-1].midi == REFERENCE_MARKER_MIDI, (
+                path, kept_part.index
             )
-            assert dropped_min == kept_min, (path, kept_part.index, kept_min, dropped_min)
     assert seen, "no genuinely-low part was found anywhere in the corpus"

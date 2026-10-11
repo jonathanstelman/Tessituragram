@@ -120,18 +120,43 @@ def _has_assert_behind_a_filter(fn: ast.AST) -> bool:
     return False
 
 
+def _own_scope_nodes(node: ast.AST):
+    """Yield descendants of `node`, not crossing into a nested loop's body.
+
+    A `continue` (or `break`) inside a nested loop binds to that inner
+    loop, not to whatever loop contains `node` -- so when deciding
+    whether an `if` matters to *this* loop's own control flow, a
+    `continue` hidden behind a further loop boundary doesn't count. A
+    synthetic case makes the risk concrete: `for x: for y: if y < 0:
+    continue; ...; assert x > 0` -- naively walking the outer loop's
+    whole subtree finds that `continue` and wrongly treats it as able to
+    skip the `assert`, which actually sits in the outer loop's own body,
+    completely unaffected by the inner loop's control flow.
+    """
+    stack = list(ast.iter_child_nodes(node))
+    while stack:
+        child = stack.pop()
+        yield child
+        if isinstance(child, (ast.For, ast.AsyncFor, ast.While)):
+            continue  # its body is a separate scope; don't descend into it
+        stack.extend(ast.iter_child_nodes(child))
+
+
 def _has_filtered_continue_guard(loop: ast.AST) -> bool:
     """True when the loop filters via `if cond: continue` and then asserts.
 
-    Looks for an `if` containing a `continue` anywhere in the loop, and an
-    `assert` elsewhere in the loop that is not itself inside that `if`'s
-    body (an assert inside the `if` alongside the `continue` is the
-    already-handled nested shape, not this one).
+    Looks for an `if`, scoped to `loop` itself (not hidden inside a
+    nested loop), that contains a `continue` also bound to `loop`. If one
+    exists, looks for an `assert` elsewhere in `loop` that is not itself
+    inside that `if`'s body (an assert inside the `if` alongside the
+    `continue` is the already-handled nested shape, not this one).
     """
-    for if_node in ast.walk(loop):
+    for if_node in _own_scope_nodes(loop):
         if not isinstance(if_node, ast.If):
             continue
-        has_continue = any(isinstance(n, ast.Continue) for n in ast.walk(if_node))
+        has_continue = any(
+            isinstance(n, ast.Continue) for n in _own_scope_nodes(if_node)
+        )
         if not has_continue:
             continue
         shielded = {id(n) for n in ast.walk(if_node)}
