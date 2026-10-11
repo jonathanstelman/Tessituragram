@@ -74,8 +74,24 @@ def test_json_sink_writes_a_single_array(tmp_path):
 
 
 def test_sinks_are_safe_to_close_with_nothing_written(tmp_path):
-    for sink in (CsvSink(str(tmp_path / "a.csv")),
-                 JsonSink(str(tmp_path / "b.json")),
-                 JsonlSink(str(tmp_path / "c.jsonl"))):
+    """Closing without a write produces a valid empty artifact, not nothing.
+
+    Asserts the artifacts rather than only that no exception escaped: a sink
+    that silently wrote no file at all would also "not raise".
+    """
+    csv_path = tmp_path / "a.csv"
+    json_path = tmp_path / "b.json"
+    jsonl_path = tmp_path / "c.jsonl"
+
+    for sink, path in ((CsvSink(str(csv_path)), csv_path),
+                       (JsonSink(str(json_path)), json_path),
+                       (JsonlSink(str(jsonl_path)), jsonl_path)):
         with sink:
             sink.open(SCHEMA)
+        assert path.exists(), path
+
+    # CSV keeps its header so the columns are still documented; the other two
+    # have no header concept, so they are an empty array and an empty file.
+    assert csv_path.read_text().splitlines() == [",".join(SCHEMA)]
+    assert json.loads(json_path.read_text()) == []
+    assert jsonl_path.read_text() == ""

@@ -29,7 +29,8 @@ def test_borrowed_features_are_namespaced_and_attributed():
     spec = base.registry()["js_average_melodic_interval"]
     assert spec.source == "jsymbolic"
     assert spec.scope == "part"
-    assert spec.citation is not None
+    # Name the source, so an empty or placeholder citation fails.
+    assert "McKay" in spec.citation
 
 
 def test_values_match_music21_run_directly():

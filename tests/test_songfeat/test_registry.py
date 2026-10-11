@@ -19,7 +19,9 @@ def test_spec_carries_metadata():
     spec = base.registry()["pitch_range"]
     assert spec.scope == "part"
     assert spec.source == "songfeat"
-    assert spec.citation is None or isinstance(spec.citation, str)
+    # Our own features carry no citation; only borrowed ones do. A
+    # disjunction over None-or-str would pass for anything.
+    assert spec.citation is None
     # None means equally valid for every format.
     assert spec.best_with is None
 

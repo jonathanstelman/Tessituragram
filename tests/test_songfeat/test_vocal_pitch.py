@@ -83,8 +83,12 @@ def test_file_without_a_tempo_mark_still_computes_durations():
     from songfeat.loaders import load
     piece = load("data/test_parsing/3 Quarter Notes and Rest.mid")
     out = base.extract_part(piece.parts[0], piece, groups_filter=["vocal"])
+    # Three quarter notes at the 120 BPM fallback are 0.5 s each, so the
+    # sounding time is exactly 1.5. "> 0" would pass at any tempo, including
+    # a wrong one -- which is the bug this test exists to catch.
+    assert out["time_dose_seconds"] == pytest.approx(1.5)
+    assert out["rest_seconds"] == pytest.approx(0.5)
     assert out["cycle_dose"] is not None
-    assert out["time_dose_seconds"] > 0
 
 
 # --- Reference values from data/test_data_arias/1-I.mid, measured against

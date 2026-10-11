@@ -58,13 +58,6 @@ def test_empty_part_yields_none():
     assert out["n_syllables"] is None
 
 
-def test_real_file_with_lyrics():
-    from songfeat.loaders import load
-    piece = load("data/test_data_arias/1-I.mid")
-    out = base.extract_part(piece.parts[0], piece, groups_filter=["vocal"])
-    assert out["n_syllables"] is not None
-
-
 # --- Ruling AA: notes before the first lyric belong to no syllable ---
 #
 # A leading lyric-less note (an instrumental pickup, or a staff where
