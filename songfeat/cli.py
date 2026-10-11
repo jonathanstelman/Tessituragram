@@ -10,6 +10,7 @@ from typing import Iterable
 from .features import registry, schema
 from .loaders import SUPPORTED_EXTENSIONS
 from .pipeline import run
+from .sinks.base import MemorySink
 from .sinks.files import CsvSink, JsonSink, JsonlSink
 
 
@@ -47,6 +48,44 @@ def make_sink(out: str | None, fmt: str | None):
     return {"csv": CsvSink, "json": JsonSink, "jsonl": JsonlSink}[fmt](out)
 
 
+def print_profile(records) -> None:
+    """Report dead columns and redundant pairs instead of writing records.
+
+    Also surfaces each spec's declared ``best_with``: a column can be fully
+    populated and still be a weaker measurement than its name suggests, when
+    the input format lacks what the feature needs (design spec: availability
+    is "recorded in feature metadata and surfaced by profile").
+    """
+    from .profile import correlated_pairs, profile_records, weak_for_format
+
+    profiles = profile_records(records)
+    dead = [p for p in profiles if p.is_constant or p.null_rate == 1.0]
+    formats = sorted({r.source_format for r in records})
+    weak = set()
+    for fmt in formats:
+        weak |= weak_for_format(fmt)
+    weak_present = weak & {p.name for p in profiles}
+
+    print(f"{len(profiles)} features, {len(dead)} carry no information")
+    if weak_present:
+        label = formats[0] if len(formats) == 1 else "/".join(formats)
+        print(
+            f"{len(weak_present)} columns are weaker on this input ({label}): "
+            "declared best_with excludes it"
+        )
+    print()
+    print(f"{'feature':<44}{'null%':>8}{'distinct':>10}{'variance':>14}")
+    for p in sorted(profiles, key=lambda p: (-p.null_rate, p.name)):
+        variance = "" if p.variance is None else f"{p.variance:.4g}"
+        flag = "  [weak: not best_with this format]" if p.name in weak_present else ""
+        print(f"{p.name:<44}{p.null_rate * 100:>7.1f}%{p.n_distinct:>10}{variance:>14}{flag}")
+    pairs = correlated_pairs(records)
+    if pairs:
+        print(f"\n{len(pairs)} correlated pairs at |r| >= 0.95:")
+        for left, right, r in sorted(pairs, key=lambda p: -abs(p[2]))[:25]:
+            print(f"  {left:<36}{right:<36}{r:>8.3f}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="songfeat",
@@ -79,6 +118,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--schema",
         action="store_true",
         help="print the output field names and exit",
+    )
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="analyse the inputs and report dead/redundant columns instead of writing records",
     )
     parser.add_argument(
         "--drop-trailing-marker",
@@ -124,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
         if not args.quiet and total > 1:
             print(f"  [{counter['n']}/{total}] {os.path.basename(path)}", file=sys.stderr)
 
-    sink = make_sink(args.out, args.format)
+    sink = MemorySink() if args.profile else make_sink(args.out, args.format)
     count, failures = run(
         files,
         sink,
@@ -133,7 +177,9 @@ def main(argv: list[str] | None = None) -> int:
         on_progress=progress,
     )
 
-    if args.out and not args.quiet:
+    if args.profile:
+        print_profile(sink.records)
+    elif args.out and not args.quiet:
         print(f"wrote {count} records to {args.out}", file=sys.stderr)
 
     if failures:
