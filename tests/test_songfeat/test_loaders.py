@@ -202,6 +202,62 @@ def test_no_marker_leaves_extent_untouched(tmp_path):
     assert dropped.duration_seconds == pytest.approx(kept.duration_seconds)
 
 
+def test_multipart_truncates_to_the_later_dropped_marker(tmp_path):
+    """Two parts each drop their own marker at a different onset; the piece
+    must truncate to whichever onset is later, not to either part alone."""
+    from music21 import note as m21_note
+    from music21 import stream as m21_stream
+
+    part_a, part_b = m21_stream.Part(), m21_stream.Part()
+    for i, midi in enumerate((60, 62, 64)):
+        n = m21_note.Note(midi)
+        n.quarterLength = 1.0
+        part_a.insert(float(i), n)
+    marker_a = m21_note.Note(24)
+    marker_a.quarterLength = 1.0
+    part_a.insert(3.0, marker_a)
+
+    for i, midi in enumerate((55, 57)):
+        n = m21_note.Note(midi)
+        n.quarterLength = 1.0
+        part_b.insert(float(i), n)
+    marker_b = m21_note.Note(24)
+    marker_b.quarterLength = 1.0
+    part_b.insert(6.0, marker_b)
+
+    out = tmp_path / "two_markers.mid"
+    m21_stream.Score([part_a, part_b]).write("midi", fp=str(out))
+
+    kept = load(str(out), drop_trailing_marker=False)
+    dropped = load(str(out), drop_trailing_marker=True)
+
+    assert kept.quarter_length == 8.0
+    assert dropped.quarter_length == 6.0
+    # Both parts actually dropped their marker, not just the one that wins.
+    assert all(min(p.notes, key=lambda n: n.midi).midi > 24 for p in dropped.parts)
+
+
+def test_marker_only_part_loads_through_the_full_pipeline(tmp_path):
+    """A part that is nothing but the marker must still load without raising,
+    collapsing to an empty, zero-length piece."""
+    from music21 import note as m21_note
+    from music21 import stream as m21_stream
+
+    part = m21_stream.Part()
+    marker = m21_note.Note(24)
+    marker.quarterLength = 1.0
+    part.insert(0.0, marker)
+
+    out = tmp_path / "marker_only.mid"
+    m21_stream.Score([part]).write("midi", fp=str(out))
+
+    piece = load(str(out), drop_trailing_marker=True)
+
+    assert piece.notes == []
+    assert piece.quarter_length == 0.0
+    assert piece.duration_seconds == 0.0
+
+
 # --- per-part isolation -----------------------------------------------------
 
 def test_multipart_file_keeps_parts_separate(tmp_path):
