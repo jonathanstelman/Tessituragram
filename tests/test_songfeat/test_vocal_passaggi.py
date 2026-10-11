@@ -17,6 +17,25 @@ def built(*specs) -> tuple[Part, Piece]:
                        parts=[part], duration_seconds=onset * 0.5)
 
 
+def built_with_gaps(*specs) -> tuple[Part, Piece]:
+    """specs are (midi, duration_seconds, gap_after_seconds) triples.
+
+    Like built(), but each note may be followed by a rest (no Note object,
+    just a wider onset step) before the next one — needed to exercise the
+    phrase-break path, which built()'s back-to-back notes never trigger.
+    Keeps built()'s convention of 2 quarters per second (120bpm), so a
+    gap_after_seconds of 1.0 is exactly PHRASE_GAP_QUARTERS (2.0 quarters).
+    """
+    notes, onset = [], 0.0
+    for midi, seconds, gap_after in specs:
+        notes.append(Note(midi=midi, onset=onset, duration=seconds * 2, part=0,
+                          onset_seconds=onset * 0.5, duration_seconds=seconds))
+        onset += seconds * 2 + gap_after * 2
+    part = Part(index=0, notes=notes)
+    return part, Piece(source_path="x.mid", source_format="midi",
+                       parts=[part], duration_seconds=onset * 0.5)
+
+
 def test_constants_came_from_the_reference_implementation():
     assert PASSAGGI["high"]["middle"] == (311.1, 392.0)
     assert len([r for v in PASSAGGI.values() for r in v]) == 9
@@ -59,6 +78,36 @@ def test_longest_span_is_contiguous_time_inside_a_zone():
     part, piece = built((64, 2.0), (65, 2.0), (48, 1.0), (64, 1.0))
     out = base.extract_part(part, piece, groups_filter=["vocal"])
     assert out["pass_high_longest_span_seconds"] == pytest.approx(4.0)
+
+
+def test_longest_span_breaks_at_a_phrase_gap_even_without_leaving_the_zone():
+    """Fix round 1: a rest has no Note object, so a long rest between two
+    in-zone stints must still break contiguity — otherwise two 3s spans
+    with a breath between score as one unbroken 6s span, overstating how
+    hard the passage is (this is a difficulty signal; sitting in a
+    passaggio continuously is harder than two shorter stints)."""
+    # Two 3s spans inside the high-middle zone (E4), 4s apart -- well past
+    # the phrase-gap threshold (PHRASE_GAP_QUARTERS=2.0, i.e. 1s at this
+    # tempo), so this does not just confirm "any gap breaks the span".
+    part, piece = built_with_gaps((64, 3.0, 4.0), (64, 3.0, 0.0))
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["pass_high_longest_span_seconds"] == pytest.approx(3.0)
+    # Total dwell and crossings were already correct; the fix must not
+    # change them. No note is ever outside the zone, so no crossing.
+    assert out["pass_high_middle_seconds"] == pytest.approx(6.0)
+    assert out["pass_high_crossings"] == 0
+
+
+def test_longest_span_joins_across_a_gap_below_the_phrase_threshold():
+    """A gap below PHRASE_GAP_QUARTERS is not a phrase break -- reusing
+    PartContext.phrases' own threshold (not a smaller local epsilon) means
+    a short breath still joins into one contiguous span."""
+    # 0.5s gap -> 1.0 quarter at this tempo, below the 2.0-quarter threshold.
+    part, piece = built_with_gaps((64, 3.0, 0.5), (64, 3.0, 0.0))
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["pass_high_longest_span_seconds"] == pytest.approx(6.0)
+    assert out["pass_high_middle_seconds"] == pytest.approx(6.0)
+    assert out["pass_high_crossings"] == 0
 
 
 def test_empty_part_yields_none_for_every_field():

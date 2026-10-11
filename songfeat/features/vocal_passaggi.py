@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..constants import PASSAGGI, PASSAGGIO_PROXIMITY_SEMITONES
+from ..constants import PASSAGGI, PASSAGGIO_PROXIMITY_SEMITONES, PHRASE_GAP_QUARTERS
 from ..model import Part, Piece
 from .base import feature
 from .vocal_pitch import midi_to_hz
@@ -72,6 +72,18 @@ def passaggi(part: Part, piece: Piece) -> dict[str, Any]:
     sounding = sum(n.duration_seconds or 0.0 for n in notes)
     out: dict[str, Any] = {}
 
+    # A rest is invisible to this model as a Note, so a contiguous span
+    # must also break at a rest long enough to count as a phrase gap —
+    # otherwise two separate stints in a zone, with a breath between,
+    # would be overstated as one unbroken span. Reuse PartContext.phrases'
+    # own threshold and comparison (quarters, not seconds) so "a break"
+    # means the same thing everywhere in the pipeline.
+    phrase_break = [False] * len(notes)
+    for i in range(1, len(notes)):
+        gap = notes[i].onset - (notes[i - 1].onset + notes[i - 1].duration)
+        if gap >= PHRASE_GAP_QUARTERS:
+            phrase_break[i] = True
+
     for voice, registers in PASSAGGI.items():
         zones = list(registers.values())
         for register, zone in registers.items():
@@ -85,6 +97,9 @@ def passaggi(part: Part, piece: Piece) -> dict[str, Any]:
                 round(100.0 * seconds / sounding, 2) if sounding else 0.0
             )
 
+        # "Inside" means inside any of the voice's three registers — the
+        # zones are disjoint, but a singer anywhere within the voice type's
+        # passaggio territory counts, not just inside one named register.
         inside_flags = [
             any(in_zone(midi_to_hz(n.midi), z) for z in zones) for n in notes
         ]
@@ -101,7 +116,9 @@ def passaggi(part: Part, piece: Piece) -> dict[str, Any]:
         )
 
         longest = current = 0.0
-        for note, inside in zip(notes, inside_flags):
+        for i, (note, inside) in enumerate(zip(notes, inside_flags)):
+            if phrase_break[i]:
+                current = 0.0
             current = current + (note.duration_seconds or 0.0) if inside else 0.0
             longest = max(longest, current)
         out[f"pass_{voice}_longest_span_seconds"] = round(longest, 2)
