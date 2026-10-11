@@ -159,13 +159,15 @@ def test_aria_i_passaggio_percentages_sum_within_each_voice(aria_i_part):
         assert 0.0 <= total <= 100.0 + 0.01
 
 
-# --- Fix round 3: dwell percentages and spans are wall-clock quantities ----
+# --- Fix round 3: a span is elapsed time, a dwell percentage is not -------
 #
-# `pass_*_seconds` stays a duration sum (a cumulative dwell dose, pinned
-# above against the spreadsheet). The percentage and the longest span are
-# wall-clock readings, so both are measured against the union of sounding
-# intervals; on a monophonic line, which the whole corpus is, union and
-# sum coincide and nothing above moves.
+# `pass_*_seconds` is a duration sum (a cumulative dwell dose, pinned
+# above against the spreadsheet) and `_pct` divides it by a denominator of
+# the same kind, so the ratio is bounded and the two columns correspond.
+# `_longest_span_seconds` is the length of an interval and so has to be
+# wall-clock: it is the union of the stint's sounding intervals. On a
+# monophonic line, which the whole corpus is, union and sum coincide and
+# nothing above moves.
 
 def chordal(total_seconds: float, *events) -> tuple[Part, Piece]:
     """events are (onset_seconds, duration_seconds, midi...) tuples."""
@@ -194,20 +196,48 @@ def test_longest_span_cannot_outlast_the_piece():
     assert out["pass_low_longest_span_seconds"] <= piece.duration_seconds
 
 
-def test_dwell_percentage_is_a_share_of_wall_clock_sounding_time():
+def test_dwell_percentage_divides_a_dose_by_a_dose():
     """One second of in-zone chord, then one second out of zone.
 
-    The singer is in the zone for half the time they are sounding. The
-    old denominator (the duration sum, 5.0 s) and the old numerator (4.0 s
-    of chord-member duration) together reported 80%.
+    `_seconds` is a duration sum, so `_pct` must divide it by a duration
+    sum: 4.0 of 5.0 voice-seconds is 80%. The review asked for the union
+    as the denominator, which here would be 4.0/2.0 = 200% -- a dose over
+    an elapsed total is not bounded by 100, so that variant is not
+    implementable. See the module's own comment for why the union is used
+    for spans and rest but not here.
     """
     part, piece = chordal(10.0, (0.0, 1.0, 72, 73, 74, 76), (1.0, 1.0, 67))
     out = base.extract_part(part, piece, groups_filter=["vocal"])
     assert out["pass_low_high_seconds"] == pytest.approx(4.0)
-    assert out["pass_low_high_pct"] == pytest.approx(50.0)
+    assert out["pass_low_high_pct"] == pytest.approx(80.0)
 
 
-def test_percentage_and_span_are_unchanged_on_a_monophonic_line():
+def test_dwell_percentage_is_bounded_on_a_chordal_part():
+    """The bound the union-denominator variant would break: a chord held
+    in zone through the whole piece is 100% of the dose, not 400%."""
+    chords = [(float(i), 1.0, 72, 73, 74, 76) for i in range(10)]
+    part, piece = chordal(10.0, *chords)
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["pass_low_high_pct"] == pytest.approx(100.0)
+
+
+def test_a_voices_three_registers_never_sum_past_one_hundred_percent():
+    """The registers are disjoint in pitch, so with a shared duration-sum
+    denominator their shares partition the dose. A wall-clock denominator
+    would not give this: two registers can sound in the same second."""
+    part, piece = chordal(
+        10.0,
+        (0.0, 1.0, 72, 60, 48),   # low voice: high, middle and low zones at once
+        (1.0, 1.0, 72, 60, 48),
+    )
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    total = sum(
+        out[f"pass_low_{register}_pct"] for register in ("high", "middle", "low")
+    )
+    assert total <= 100.0 + 0.01, total
+
+
+def test_percentage_and_span_agree_on_a_monophonic_line():
     """Union equals sum with no overlap, so the corpus values must not
     move -- otherwise this fix would be a silent recalibration."""
     part, piece = built((72, 1.0), (73, 1.0), (67, 2.0))

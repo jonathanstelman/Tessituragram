@@ -86,14 +86,29 @@ def test_compare_reports_passaggio_quantities():
     assert results["LV/Mp tp"].expected != results["HV/Mp tp"].expected
 
 
-def test_total_time_pair_is_none_when_a_component_is_unmeasurable():
-    """Fix round 1, ruling AH: a None component (duration unknown) must not
-    be substituted with zero -- that would read as perfect agreement."""
-    from songfeat.validation import _total_time
+def test_total_time_is_read_from_the_piece_not_rebuilt_from_two_features():
+    """Fix round 3: `t` was `time_dose_seconds + rest_seconds`.
 
-    assert _total_time(120.0, None) is None
-    assert _total_time(None, 30.0) is None
-    assert _total_time(120.0, 30.0) == pytest.approx(150.0)
+    That only agreed by cancellation, because rest was defined as the
+    total minus the same duration sum. With rest now measured against
+    wall-clock sounding time, adding a phonatory dose to an elapsed-time
+    remainder overshoots the real total by the over-count -- the harness
+    reproducing the very error the feature fix removed. Aria I is
+    monophonic so its two readings coincide; 10-X overlaps, and there the
+    reconstructed sum is measurably wrong while piece.duration_seconds is
+    not.
+    """
+    from songfeat.features import base
+    from songfeat.loaders import load
+
+    piece = load(os.path.join(CORPUS, "10-X.mid"), drop_trailing_marker=True)
+    out = base.extract_part(piece.parts[0], piece, groups_filter=["vocal"])
+    rebuilt = out["time_dose_seconds"] + out["rest_seconds"]
+    assert rebuilt > piece.duration_seconds + 0.05, (rebuilt, piece.duration_seconds)
+
+    results = {c.quantity: c for c in compare(CORPUS, XLSX, arias=["X"])}
+    assert results["t"].actual == pytest.approx(piece.duration_seconds, abs=0.01)
+    assert results["t"].actual != pytest.approx(rebuilt, abs=0.05)
 
 
 def test_compare_reports_passaggio_percentages():

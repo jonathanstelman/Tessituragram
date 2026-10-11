@@ -171,20 +171,22 @@ def load_ground_truth(xlsx_path: str) -> dict[str, dict[str, float]]:
     return truth
 
 
-def _total_time(sounding: float | None, rest: float | None) -> float | None:
-    """Combine sounding and rest time into the piece's total, or None.
-
-    Fix round 1, ruling AH: ``out.get("rest_seconds", 0)`` only substitutes
-    0 when the *key* is absent, not when the feature legitimately computed
-    None (piece.duration_seconds unknown -- songfeat/model.py:79 makes that
-    case real, not missing). ``None + x`` would raise; silently treating a
-    None as 0 would be worse, since it reports an unmeasurable quantity as
-    if it agreed with the ground truth by luck. Either component missing
-    makes the total unmeasurable too.
-    """
-    if sounding is None or rest is None:
-        return None
-    return sounding + rest
+#: Fix round 3: ``t`` used to be reconstructed as
+#: ``time_dose_seconds + rest_seconds``. That was only ever correct by
+#: cancellation -- rest was defined as ``total - time_dose_seconds``, so
+#: adding them gave the total back whatever either one meant. Once rest
+#: became the piece's total minus *wall-clock* sounding time, the sum
+#: overshoots by the duration sum's over-count (up to 29.3 s on
+#: 96-XCVI.mid), and the harness reproduced inside itself exactly the
+#: unit-mixing the feature fix removed: a phonatory dose added to an
+#: elapsed-time remainder. ``t`` is the piece's total time, which the
+#: model carries directly, so it is read from there and not rebuilt out of
+#: two quantities that no longer complement each other.
+#:
+#: The ruling this replaces (fix round 1, ruling AH) was about not
+#: substituting 0 for a None component. That concern survives: a piece
+#: whose duration is unknown has ``piece.duration_seconds is None``, which
+#: compare() already reports as unmeasurable rather than as agreement.
 
 
 def _roman_to_path(corpus_dir: str, roman: str) -> str | None:
@@ -209,7 +211,7 @@ def compare(
         out = base.extract_part(piece.parts[0], piece, groups_filter=["vocal"])
 
         pairs = [
-            ("t", _total_time(out.get("time_dose_seconds"), out.get("rest_seconds"))),
+            ("t", piece.duration_seconds),
             ("tr", out.get("rest_seconds")),
             ("Fptp", out.get("cycle_dose")),
             ("Q0p", out.get("q0_hz")),
