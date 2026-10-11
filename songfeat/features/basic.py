@@ -12,7 +12,7 @@ from typing import Any
 
 from music21 import pitch as m21_pitch
 
-from ..model import Piece
+from ..model import Part, Piece
 from .base import feature
 
 
@@ -46,6 +46,8 @@ def _key_name(sharps: int | None, mode: str | None = None) -> str | None:
 @feature(
     name="source",
     group="basic",
+    scope="piece",
+    source="songfeat",
     description="Where the piece came from and what the file declared about it.",
     fields=("source_path", "source_format", "title", "composer"),
 )
@@ -61,6 +63,8 @@ def source(piece: Piece) -> dict[str, Any]:
 @feature(
     name="size",
     group="basic",
+    scope="part",
+    source="songfeat",
     description="How much music there is.",
     fields=(
         "n_notes",
@@ -71,21 +75,24 @@ def source(piece: Piece) -> dict[str, Any]:
         "notes_per_second",
     ),
 )
-def size(piece: Piece) -> dict[str, Any]:
+def size(part: Part, piece: Piece) -> dict[str, Any]:
     seconds = piece.duration_seconds or 0.0
+    n_notes = len(part.notes)
     return {
-        "n_notes": len(piece.notes),
+        "n_notes": n_notes,
         "n_parts": len(piece.parts),
         "n_measures": piece.measure_count,
         "quarter_length": round(piece.quarter_length, 3),
         "duration_seconds": round(seconds, 2) if seconds else None,
-        "notes_per_second": round(len(piece.notes) / seconds, 3) if seconds else None,
+        "notes_per_second": round(n_notes / seconds, 3) if seconds else None,
     }
 
 
 @feature(
     name="pitch_range",
     group="basic",
+    scope="part",
+    source="songfeat",
     description="Lowest and highest sounding pitches, and central tendency.",
     fields=(
         "min_midi",
@@ -97,20 +104,12 @@ def size(piece: Piece) -> dict[str, Any]:
         "median_midi",
     ),
 )
-def pitch_range(piece: Piece) -> dict[str, Any]:
-    if piece.is_empty:
-        return dict.fromkeys(
-            (
-                "min_midi",
-                "min_note",
-                "max_midi",
-                "max_note",
-                "range_semitones",
-                "mean_midi",
-                "median_midi",
-            )
-        )
-    midis = [n.midi for n in piece.notes]
+def pitch_range(part: Part, piece: Piece) -> dict[str, Any]:
+    fields = ("min_midi", "min_note", "max_midi", "max_note",
+              "range_semitones", "mean_midi", "median_midi")
+    if part.is_empty:
+        return dict.fromkeys(fields)
+    midis = [n.midi for n in part.notes]
     low, high = min(midis), max(midis)
     return {
         "min_midi": low,
@@ -126,6 +125,8 @@ def pitch_range(piece: Piece) -> dict[str, Any]:
 @feature(
     name="tempo",
     group="basic",
+    scope="piece",
+    source="songfeat",
     description="Notated tempo and how much it moves.",
     fields=(
         "tempo_initial_bpm",
@@ -160,6 +161,8 @@ def tempo(piece: Piece) -> dict[str, Any]:
 @feature(
     name="key_signature",
     group="basic",
+    scope="piece",
+    source="songfeat",
     description="Key signatures as notated, and how often they change.",
     fields=(
         "key_initial_sharps",
@@ -200,6 +203,8 @@ def key_signature(piece: Piece) -> dict[str, Any]:
 @feature(
     name="analyzed_key",
     group="basic",
+    scope="piece",
+    source="songfeat",
     description="Key inferred from the notes themselves (Krumhansl-Schmuckler).",
     fields=("analyzed_key", "analyzed_tonic", "analyzed_mode", "is_major", "is_minor",
             "analyzed_key_confidence"),
@@ -230,6 +235,8 @@ def analyzed_key(piece: Piece) -> dict[str, Any]:
 @feature(
     name="meter",
     group="basic",
+    scope="piece",
+    source="songfeat",
     description="Time signatures as notated, and how often they change.",
     fields=("meter_initial", "n_meter_signatures", "n_meter_changes", "meters"),
 )
@@ -257,9 +264,11 @@ def meter(piece: Piece) -> dict[str, Any]:
 @feature(
     name="text",
     group="basic",
+    scope="part",
+    source="songfeat",
     description="Whether the score carries sung text.",
     fields=("has_lyrics", "n_lyric_syllables"),
 )
-def text(piece: Piece) -> dict[str, Any]:
-    syllables = sum(1 for n in piece.notes if n.lyric)
+def text(part: Part, piece: Piece) -> dict[str, Any]:
+    syllables = sum(1 for n in part.notes if n.lyric)
     return {"has_lyrics": syllables > 0, "n_lyric_syllables": syllables}

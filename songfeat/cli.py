@@ -10,7 +10,7 @@ import sys
 from typing import Any, Iterable
 
 from . import features as features_module
-from .features import extract, registry, schema
+from .features import extract_part, extract_piece, registry, schema
 from .loaders import SUPPORTED_EXTENSIONS, ParseError, UnsupportedFormatError, load
 
 
@@ -35,17 +35,18 @@ def analyze_paths(
     on_progress=None,
     drop_trailing_marker: bool = False,
 ) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
-    """Return (records, failures). One bad file never stops the batch."""
+    """Return (records, failures). One row per part; one bad file never stops the batch."""
     records: list[dict[str, Any]] = []
     failures: list[tuple[str, str]] = []
     for path in paths:
         try:
-            records.append(
-                extract(
-                    load(path, drop_trailing_marker=drop_trailing_marker),
-                    groups_filter,
-                )
-            )
+            piece = load(path, drop_trailing_marker=drop_trailing_marker)
+            piece_fields = extract_piece(piece, groups_filter)
+            for part in piece.parts:
+                part_fields = extract_part(part, piece, groups_filter)
+                record = {**piece_fields, **part_fields}
+                record["_errors"] = {**piece_fields["_errors"], **part_fields["_errors"]}
+                records.append(record)
         except (ParseError, UnsupportedFormatError, FileNotFoundError) as exc:
             failures.append((path, f"{type(exc).__name__}: {exc}"))
         except Exception as exc:  # noqa: BLE001
