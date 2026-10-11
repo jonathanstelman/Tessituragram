@@ -22,9 +22,12 @@ from ..loaders import DEFAULT_BPM
 from ..model import Part, Piece
 from .base import feature
 
-#: Skipped for two different reasons -- worth keeping apart, because they
+#: Skipped for three different reasons -- worth keeping apart, because they
 #: carry different implications for whether a future music21 version or a
-#: richer model could un-skip them.
+#: richer model could un-skip them: a richer ``_as_score`` could un-skip
+#: group one; nothing could un-skip group two, since the model has no
+#: dynamics data to give it; group three would need a different column
+#: strategy entirely (one column per vector element), not more data.
 SKIPPED_EXTRACTORS = {
     # Instrumentation / multi-part texture: meaningless for a single
     # reconstructed part regardless of what the model carries. Measured
@@ -55,6 +58,24 @@ SKIPPED_EXTRACTORS = {
     "OverallDynamicRangeFeature", "RelativeRangeOfLoudestVoiceFeature",
     "VariationOfDynamicsFeature", "VariationOfDynamicsInEachVoiceFeature",
     "VoiceEqualityDynamicsFeature",
+
+    # Multi-dimensional vectors (histograms, distributions): collapsing
+    # them to one scalar column previously meant summing the vector, and a
+    # normalised probability distribution always sums to 1.0 regardless of
+    # content -- a constant dressed up as a measurement, the same failure
+    # ruling R was written to stop, just shaped like a vector instead of a
+    # zero. ``InitialTimeSignatureFeature`` sums [numerator, denominator]
+    # into a lossy, non-injective number (2/4 and "3/3" both give 6); our
+    # own piece-scoped ``meter`` feature already reports the real signature,
+    # so skipping it loses nothing. ``BeatHistogramFeature`` is kept here
+    # rather than left to surface as a runtime error: music21 has not
+    # implemented it yet, but its own ``dimensions = 161`` shows it would
+    # still be a 161-element vector if it were, so by-name skipping it is
+    # correct independent of whether music21 ever finishes it.
+    "BasicPitchHistogramFeature", "PitchClassDistributionFeature",
+    "FifthsPitchHistogramFeature", "MelodicIntervalHistogramFeature",
+    "ChordBassMotionFeature", "InitialTimeSignatureFeature",
+    "BeatHistogramFeature",
 }
 
 CITATIONS = {
@@ -114,8 +135,17 @@ def _make_extractor(cls, column: str):
         if part.is_empty:
             return {column: None}
         result = cls(_as_score(part, piece)).extract()
-        value = result.vector[0] if len(result.vector) == 1 else sum(result.vector)
-        return {column: round(float(value), 6)}
+        if len(result.vector) != 1:
+            # Defends against any multi-dimensional extractor a future
+            # music21 version adds that is not in SKIPPED_EXTRACTORS by
+            # name: summing a vector fabricates a scalar (ruling T), so a
+            # wrong shape nulls the field and says why, the same as any
+            # other failing extractor.
+            raise ValueError(
+                f"cannot represent a {len(result.vector)}-element vector "
+                f"as one scalar column"
+            )
+        return {column: round(float(result.vector[0]), 6)}
 
     return extract
 

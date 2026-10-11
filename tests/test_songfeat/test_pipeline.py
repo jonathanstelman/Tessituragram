@@ -49,10 +49,13 @@ def test_run_reports_failures_without_losing_good_records(tmp_path):
     assert "broken.mid" in failures[0][0]
 
 
-#: Borrowed extractors known to always fail on real input (Task 8): twelve
+#: Borrowed extractors known to always fail on real input (Task 8): eleven
 #: jSymbolic stubs music21 itself has not implemented, plus two native
 #: extractors that need data our model/reconstruction cannot supply (Forte
 #: triads on a monophonic line; composer metadata for popularity lookup).
+#: ``js_beat_histogram`` used to be here too, but it is also structurally a
+#: 161-element vector (ruling T) and so moved to SKIPPED_EXTRACTORS instead
+#: of surfacing as a runtime error -- it is no longer registered at all.
 #: Pinned by name, not just counted, so a regression that breaks a
 #: *different*, previously-working extractor is still caught.
 EXPECTED_BORROWED_FAILURES = {
@@ -60,7 +63,7 @@ EXPECTED_BORROWED_FAILURES = {
     "js_average_range_of_glissandos", "js_vibrato_prevalence",
     "js_prevalence_of_microtones", "js_number_of_strong_pulses",
     "js_number_of_moderate_pulses", "js_rhythmic_looseness", "js_polyrhythms",
-    "js_rhythmic_variability", "js_beat_histogram",
+    "js_rhythmic_variability",
     "nat_incorrectly_spelled_triad_prevalence", "nat_composer_popularity",
 }
 
