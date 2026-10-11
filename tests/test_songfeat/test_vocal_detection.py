@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from songfeat.loaders import load
 from songfeat.model import Note, Part, Piece
 from songfeat.vocal import detect_vocal
@@ -64,61 +66,69 @@ def test_empty_part_scores_zero_without_raising():
     assert evidence.signals == {"lyrics": 0.0, "monophony": 0.0, "range": 0.0, "naming": 0.0}
 
 
-def test_naming_signal_specification():
-    """Comprehensive test of naming signal across the specification table.
+@pytest.mark.parametrize("part_name,expected_naming", [
+    # Instrument compounds with voice-type qualifiers (should reject)
+    ("Bass Clarinet", 0.0),
+    ("Double Bass", 0.0),
+    ("Bass Trombone", 0.0),
+    ("Bass Flute", 0.0),
+    ("Bass Drum", 0.0),
+    ("Contrabass", 0.0),
+    ("Basset Horn", 0.0),
+    ("Alto Saxophone", 0.0),
+    ("Alto Flute", 0.0),
+    ("Soprano Saxophone", 0.0),
+    ("Soprano Recorder", 0.0),
+    ("Soprano Clarinet", 0.0),
+    ("Tenor Trombone", 0.0),
+    ("Baritone Horn", 0.0),
+    ("Baritone Saxophone", 0.0),
+    ("Baritone Ukulele", 0.0),
+    ("Violin I", 0.0),
+    ("Viola", 0.0),
+    # Solo voice-type parts (should accept)
+    ("Soprano", 1.0),
+    ("Alto", 1.0),
+    ("Tenor", 1.0),
+    ("Baritone", 1.0),
+    ("Bass", 1.0),
+    # Voice-type with number decoration (should accept)
+    ("Soprano 1", 1.0),
+    ("Bass II", 1.0),
+    # Voice-type with roman numeral decoration (should accept)
+    ("Soprano I", 1.0),
+    # Voice-type with word decoration (should accept)
+    ("Soprano Solo", 1.0),
+    ("Tenor Solo", 1.0),
+    ("Bass Solo", 1.0),
+    ("Bass Voice", 1.0),
+    ("Tenor Voice", 1.0),
+    # Multiple voice types (should accept)
+    ("Mezzo-Soprano", 1.0),
+    # Unambiguous vocal words (should accept)
+    ("Voice", 1.0),
+    ("Vocal", 1.0),
+    ("Vocal Line", 1.0),
+    ("Voce", 1.0),
+    ("Canto", 1.0),
+    ("Sing", 1.0),
+    ("Chant", 1.0),
+])
+def test_naming_signal_specification(part_name, expected_naming):
+    """Comprehensive parametrised test of naming signal.
 
-    Split vocabulary by ambiguity:
-    - Unambiguous keywords (voice, vocal, soprano, etc.) match as whole words anywhere
-    - Ambiguous keywords (bass, alto, tenor) match only if other tokens are decorations
-      (numbers, roman numerals, or words like solo/voice/vocal/part/line)
+    All voice-type words (soprano, mezzo, alto, tenor, baritone, bass) are ambiguous
+    because instrument families use them (Soprano Saxophone, Bass Clarinet, etc.).
+    They match only when other tokens are decorations (numbers, roman numerals,
+    other voice-type words, or words like solo/voice/vocal/part/line).
+
+    Unambiguous words (voice, vocal, voce, canto, sing, chant) match as whole
+    words anywhere in the part name.
     """
-    # INCORRECT (ambiguous keyword with instrument qualifier)
-    part = line([60, 62, 64], part=0, name="Bass Clarinet")
-    assert detect_vocal(part, piece_with(part)).signals["naming"] == 0.0
-
-    part = line([60, 62, 64], part=0, name="Double Bass")
-    assert detect_vocal(part, piece_with(part)).signals["naming"] == 0.0
-
-    part = line([60, 62, 64], part=0, name="Bass Trombone")
-    assert detect_vocal(part, piece_with(part)).signals["naming"] == 0.0
-
-    part = line([60, 62, 64], part=0, name="Alto Saxophone")
-    assert detect_vocal(part, piece_with(part)).signals["naming"] == 0.0
-
-    # CORRECT (unambiguous keyword alone)
-    part = line([60, 62, 64], part=0, name="Soprano")
-    assert detect_vocal(part, piece_with(part)).signals["naming"] == 1.0
-
-    part = line([60, 62, 64], part=0, name="Bass")
-    assert detect_vocal(part, piece_with(part)).signals["naming"] == 1.0
-
-    # CORRECT (ambiguous keyword with decoration: number)
-    part = line([60, 62, 64], part=0, name="Soprano 1")
-    assert detect_vocal(part, piece_with(part)).signals["naming"] == 1.0
-
-    # CORRECT (ambiguous keyword with decoration: roman numeral)
-    part = line([60, 62, 64], part=0, name="Soprano I")
-    assert detect_vocal(part, piece_with(part)).signals["naming"] == 1.0
-
-    # CORRECT (ambiguous keyword with decoration word)
-    part = line([60, 62, 64], part=0, name="Tenor Solo")
-    assert detect_vocal(part, piece_with(part)).signals["naming"] == 1.0
-
-    # CORRECT (unambiguous keyword with decoration)
-    part = line([60, 62, 64], part=0, name="Vocal Line")
-    assert detect_vocal(part, piece_with(part)).signals["naming"] == 1.0
-
-    # CORRECT (unambiguous keyword with hyphen)
-    part = line([60, 62, 64], part=0, name="Mezzo-Soprano")
-    assert detect_vocal(part, piece_with(part)).signals["naming"] == 1.0
-
-    # CORRECT (ambiguous keyword with multiple decorations)
-    part = line([60, 62, 64], part=0, name="Bass Solo")
-    assert detect_vocal(part, piece_with(part)).signals["naming"] == 1.0
-
-    # CORRECT (ambiguous keyword with voice decoration)
-    part = line([60, 62, 64], part=0, name="Tenor Voice")
-    assert detect_vocal(part, piece_with(part)).signals["naming"] == 1.0
+    part = line([60, 62, 64], part=0, name=part_name)
+    evidence = detect_vocal(part, piece_with(part))
+    assert evidence.signals["naming"] == expected_naming, \
+        f"{part_name} should have naming={expected_naming} but got {evidence.signals['naming']}"
 
 
 def test_no_part_is_vocal_in_real_quartet(tmp_path):

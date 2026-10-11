@@ -15,16 +15,18 @@ from .model import Part, Piece
 #: Generous outer bounds of the human singing range, in MIDI numbers (E2-C6).
 VOCAL_LOW, VOCAL_HIGH = 40, 84
 
-#: Unambiguous vocal keywords (never instrument qualifiers).
-#: Match as whole words anywhere in the field.
-UNAMBIGUOUS_VOCAL_WORDS = (
-    "voice", "vocal", "soprano", "mezzo", "baritone", "sing", "chant",
-    "canto", "voce",  # Italian aria repertoire
+#: Voice-type keywords (all are ambiguous: Soprano Saxophone, Baritone Horn, etc.).
+#: Instrument families use these register names, so all voice types are potential qualifiers.
+AMBIGUOUS_VOCAL_WORDS = (
+    "soprano", "mezzo", "alto", "tenor", "baritone", "bass"
 )
 
-#: Ambiguous vocal keywords (also instrument qualifiers: Bass Clarinet, Alto Saxophone).
-#: Match only when other tokens are decorations (numbers, roman numerals, or decoration words).
-AMBIGUOUS_VOCAL_WORDS = ("bass", "alto", "tenor")
+#: Unambiguous vocal keywords (name no instrument qualifier).
+#: Match as whole words anywhere in the field.
+UNAMBIGUOUS_VOCAL_WORDS = (
+    "voice", "vocal", "sing", "chant",
+    "canto", "voce",  # Italian aria repertoire
+)
 
 #: Words that decorate ambiguous vocal keywords (part numbers, roles, etc.).
 DECORATION_WORDS = ("solo", "voice", "vocal", "part", "line")
@@ -47,7 +49,11 @@ def _range_score(part: Part) -> float:
 
 
 def _is_decoration(token: str) -> bool:
-    """Check if a token is a decoration (number, roman numeral, or specific word)."""
+    """Check if a token is a decoration or another voice type.
+
+    Decorations are numbers, roman numerals, or specific words.
+    Other voice-type tokens are acceptable companions (e.g., "Mezzo-Soprano").
+    """
     if token in DECORATION_WORDS:
         return True
     if token.isdigit():
@@ -55,34 +61,37 @@ def _is_decoration(token: str) -> bool:
     # Roman numeral: uppercase or lowercase i, v, x, l, c, d, m
     if re.match(r"^[ivxlcdm]+$", token):
         return True
+    # Another voice-type token (e.g., "soprano" in "Mezzo-Soprano")
+    if token in AMBIGUOUS_VOCAL_WORDS:
+        return True
     return False
 
 
 def _naming_score(part: Part) -> float:
     """Match vocal keywords with intelligence about ambiguous instrument qualifiers.
 
-    Unambiguous keywords (voice, vocal, soprano, etc.) match as whole words anywhere.
-    Ambiguous keywords (bass, alto, tenor) match only if other tokens are decorations
-    (numbers, roman numerals, or words like solo/voice/vocal/part/line).
+    Unambiguous keywords (voice, vocal, etc.) match as whole words anywhere.
+    Ambiguous keywords (voice-type names) match only if other tokens are decorations
+    (numbers, roman numerals, other voice types, or words like solo/voice/vocal/part/line).
     """
     name_lower = (part.name or "").strip().lower()
     instrument_lower = (part.instrument or "").strip().lower()
 
-    for field in [name_lower, instrument_lower]:
-        if not field:
+    for text in [name_lower, instrument_lower]:
+        if not text:
             continue
 
         # Tokenise on whitespace and hyphens
-        tokens = [t for t in re.split(r"[\s\-]+", field) if t]
+        tokens = [t for t in re.split(r"[\s\-]+", text) if t]
 
         # Check for unambiguous words (can match as a whole word anywhere)
         if any(word in UNAMBIGUOUS_VOCAL_WORDS for word in tokens):
             return 1.0
 
-        # Check for ambiguous words (only match if other tokens are decorations)
+        # Check for ambiguous words (only match if other tokens are decorations or other voice types)
         for token in tokens:
             if token in AMBIGUOUS_VOCAL_WORDS:
-                # Check if all other tokens are decorations
+                # Check if all other tokens are decorations (including other voice types)
                 other_tokens = [t for t in tokens if t != token]
                 if all(_is_decoration(t) for t in other_tokens):
                     return 1.0
