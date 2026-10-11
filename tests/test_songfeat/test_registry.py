@@ -2,6 +2,17 @@ import pytest
 
 from songfeat.features import base
 from songfeat.model import Note, Part, Piece
+from songfeat.record import FeatureRecord
+
+
+def test_feature_fields_never_collide_with_identity_columns():
+    """flat() does row.update(self.features) after seeding identity columns,
+    and schema() now prepends FeatureRecord.IDENTITY ahead of feature
+    fields (see pipeline wiring). A feature field sharing a name with an
+    identity column would silently overwrite it and duplicate a column.
+    """
+    feature_fields = {f for spec in base.registry().values() for f in spec.fields}
+    assert feature_fields.isdisjoint(FeatureRecord.IDENTITY)
 
 
 def test_spec_carries_metadata():

@@ -68,9 +68,15 @@ def groups() -> list[str]:
 
 
 def schema(groups_filter: Iterable[str] | None = None) -> list[str]:
-    """Ordered output field names, without parsing anything."""
+    """Ordered output field names, without parsing anything.
+
+    Identity columns (source path, part index, ...) come first, matching
+    the order ``FeatureRecord.flat()`` emits them in.
+    """
+    from ..record import FeatureRecord  # local import avoids a cycle
+
+    names = list(FeatureRecord.IDENTITY)
     wanted = set(groups_filter) if groups_filter else None
-    names: list[str] = []
     for spec in _REGISTRY.values():
         if wanted is None or spec.group in wanted:
             names.extend(spec.fields)

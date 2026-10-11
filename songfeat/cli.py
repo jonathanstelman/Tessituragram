@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import argparse
-import csv
-import json
 import os
 import sys
-from typing import Any, Iterable
+from typing import Iterable
 
-from . import features as features_module
-from .features import extract_part, extract_piece, registry, schema
-from .loaders import SUPPORTED_EXTENSIONS, ParseError, UnsupportedFormatError, load
+from .features import registry, schema
+from .loaders import SUPPORTED_EXTENSIONS
+from .pipeline import run
+from .sinks.files import CsvSink, JsonSink, JsonlSink
 
 
 def iter_score_files(paths: Iterable[str], recursive: bool = True) -> list[str]:
@@ -29,41 +28,15 @@ def iter_score_files(paths: Iterable[str], recursive: bool = True) -> list[str]:
     return sorted(set(found))
 
 
-def analyze_paths(
-    paths: Iterable[str],
-    groups_filter: Iterable[str] | None = None,
-    on_progress=None,
-    drop_trailing_marker: bool = False,
-) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
-    """Return (records, failures). One row per part; one bad file never stops the batch."""
-    records: list[dict[str, Any]] = []
-    failures: list[tuple[str, str]] = []
-    for path in paths:
-        try:
-            piece = load(path, drop_trailing_marker=drop_trailing_marker)
-            piece_fields = extract_piece(piece, groups_filter)
-            for part in piece.parts:
-                part_fields = extract_part(part, piece, groups_filter)
-                record = {**piece_fields, **part_fields}
-                record["_errors"] = {**piece_fields["_errors"], **part_fields["_errors"]}
-                records.append(record)
-        except (ParseError, UnsupportedFormatError, FileNotFoundError) as exc:
-            failures.append((path, f"{type(exc).__name__}: {exc}"))
-        except Exception as exc:  # noqa: BLE001
-            failures.append((path, f"{type(exc).__name__}: {exc}"))
-        if on_progress:
-            on_progress(path)
-    return records, failures
-
-
-def write_csv(records: list[dict[str, Any]], handle, groups_filter=None) -> None:
-    columns = schema(groups_filter)
-    # Include any error columns that actually appeared.
-    extra = sorted({k for r in records for k in r if k not in columns})
-    writer = csv.DictWriter(handle, fieldnames=columns + extra, extrasaction="ignore")
-    writer.writeheader()
-    for record in records:
-        writer.writerow(record)
+def make_sink(out: str | None, fmt: str | None):
+    """Pick a sink from --out and --format. Defaults to jsonl on stdout."""
+    if out and not fmt:
+        ext = os.path.splitext(out)[1].lower()
+        fmt = {".csv": "csv", ".json": "json", ".jsonl": "jsonl"}.get(ext, "jsonl")
+    fmt = fmt or "jsonl"
+    if out is None:
+        return JsonlSink("/dev/stdout")
+    return {"csv": CsvSink, "json": JsonSink, "jsonl": JsonlSink}[fmt](out)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -72,12 +45,12 @@ def build_parser() -> argparse.ArgumentParser:
         description="Extract structured features from symbolic music files.",
     )
     parser.add_argument("paths", nargs="*", help="score files or folders")
-    parser.add_argument("-o", "--out", help="write to this file (.csv or .json)")
+    parser.add_argument("-o", "--out", help="write to this file (.csv, .json, or .jsonl)")
     parser.add_argument(
         "-f",
         "--format",
-        choices=("json", "csv"),
-        help="output format (default: inferred from --out, else json)",
+        choices=("json", "jsonl", "csv"),
+        help="output format (default: inferred from --out, else jsonl)",
     )
     parser.add_argument(
         "-g",
@@ -143,38 +116,23 @@ def main(argv: list[str] | None = None) -> int:
         if not args.quiet and total > 1:
             print(f"  [{counter['n']}/{total}] {os.path.basename(path)}", file=sys.stderr)
 
-    records, failures = analyze_paths(
+    sink = make_sink(args.out, args.format)
+    count, failures = run(
         files,
+        sink,
         groups_filter,
-        on_progress=progress,
         drop_trailing_marker=args.drop_trailing_marker,
+        on_progress=progress,
     )
 
-    out_format = args.format
-    if not out_format and args.out:
-        out_format = "csv" if args.out.lower().endswith(".csv") else "json"
-    out_format = out_format or "json"
-
-    if args.out:
-        with open(args.out, "w", newline="", encoding="utf-8") as handle:
-            if out_format == "csv":
-                write_csv(records, handle, groups_filter)
-            else:
-                json.dump(records, handle, indent=2, default=str)
-        if not args.quiet:
-            print(f"wrote {len(records)} records to {args.out}", file=sys.stderr)
-    else:
-        if out_format == "csv":
-            write_csv(records, sys.stdout, groups_filter)
-        else:
-            json.dump(records, sys.stdout, indent=2, default=str)
-            print()
+    if args.out and not args.quiet:
+        print(f"wrote {count} records to {args.out}", file=sys.stderr)
 
     if failures:
         print(f"\n{len(failures)} file(s) failed:", file=sys.stderr)
         for path, reason in failures:
             print(f"  {os.path.basename(path)}: {reason}", file=sys.stderr)
-        return 1 if not records else 0
+        return 1 if not count else 0
     return 0
 
 

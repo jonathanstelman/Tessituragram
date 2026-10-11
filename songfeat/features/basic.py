@@ -48,13 +48,13 @@ def _key_name(sharps: int | None, mode: str | None = None) -> str | None:
     group="basic",
     scope="piece",
     source="songfeat",
-    description="Where the piece came from and what the file declared about it.",
-    fields=("source_path", "source_format", "title", "composer"),
+    description="What the file declared about itself. Where it came from is"
+    " an identity column (FeatureRecord.source_path/source_format), not a"
+    " feature, so it is not repeated here.",
+    fields=("title", "composer"),
 )
 def source(piece: Piece) -> dict[str, Any]:
     return {
-        "source_path": piece.source_path,
-        "source_format": piece.source_format,
         "title": piece.metadata.get("title"),
         "composer": piece.metadata.get("composer"),
     }

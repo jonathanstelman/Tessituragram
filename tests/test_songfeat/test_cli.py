@@ -1,11 +1,10 @@
 import csv
-import io
 import json
 import os
 
 import pytest
 
-from songfeat.cli import build_parser, iter_score_files, main, write_csv
+from songfeat.cli import build_parser, iter_score_files, main
 
 ARIA_DIR = os.path.join("data", "test_data_arias")
 ARIA = os.path.join(ARIA_DIR, "1-I.mid")
@@ -53,13 +52,13 @@ def test_json_output_to_file(tmp_path):
     assert main([ARIA, "-q", "-o", str(out)]) == 0
     records = json.loads(out.read_text())
     assert len(records) == 1
-    assert records[0]["min_note"] == "C1"  # marker kept by default
+    assert records[0]["features"]["min_note"] == "C1"  # marker kept by default
 
 
 def test_drop_marker_flag_changes_the_result(tmp_path):
     out = tmp_path / "out.json"
     assert main([ARIA, "-q", "--drop-trailing-marker", "-o", str(out)]) == 0
-    assert json.loads(out.read_text())[0]["min_note"] == "D2"
+    assert json.loads(out.read_text())[0]["features"]["min_note"] == "D2"
 
 
 def test_csv_output_has_a_stable_header(tmp_path):
@@ -68,6 +67,16 @@ def test_csv_output_has_a_stable_header(tmp_path):
     rows = list(csv.DictReader(out.open()))
     assert len(rows) == 1
     assert rows[0]["max_note"] == "E4"
+
+
+def test_csv_output_has_no_stringified_errors_column(tmp_path):
+    """The interim CLI's _errors dict used to str()-ify into every row."""
+    out = tmp_path / "out.csv"
+    assert main([ARIA, "-q", "-o", str(out)]) == 0
+    header = out.read_text().splitlines()[0].split(",")
+    assert "_errors" not in header
+    rows = list(csv.DictReader(out.open()))
+    assert "{}" not in rows[0].values()
 
 
 def test_unparseable_file_is_reported_not_fatal(tmp_path, capsys):
@@ -87,10 +96,10 @@ def test_all_files_failing_returns_nonzero(tmp_path):
     assert main([str(bad), "-q", "-o", str(tmp_path / "out.json")]) == 1
 
 
-def test_write_csv_includes_error_columns():
-    handle = io.StringIO()
-    write_csv([{"min_note": "C4", "_error_demo": "boom"}], handle)
-    assert "_error_demo" in handle.getvalue().splitlines()[0]
+def test_default_format_is_jsonl(tmp_path):
+    out = tmp_path / "out.jsonl"
+    assert main([ARIA, "-q", "-o", str(out)]) == 0
+    assert len(out.read_text().strip().splitlines()) == 1
 
 
 def test_parser_defaults():

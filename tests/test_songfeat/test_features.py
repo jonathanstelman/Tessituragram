@@ -49,8 +49,11 @@ def test_schema_matches_registered_fields():
 
 
 def test_schema_can_filter_by_group():
+    from songfeat.record import FeatureRecord
+
     assert schema(["basic"]) == schema()
-    assert schema(["nonexistent"]) == []
+    # Identity columns are always present; an unmatched group adds nothing else.
+    assert schema(["nonexistent"]) == list(FeatureRecord.IDENTITY)
 
 
 # --- individual features ---------------------------------------------------
@@ -200,7 +203,7 @@ def test_real_file_matches_reference_implementation():
 
     records = analyze(ARIA, drop_trailing_marker=True)
     assert len(records) == 1
-    out = records[0]
+    out = records[0].features
     assert out["min_note"] == "D2"
     assert out["max_note"] == "E4"
     assert out["tempo_initial_bpm"] == 140.0
