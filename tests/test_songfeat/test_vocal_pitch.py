@@ -156,3 +156,50 @@ def test_aria_i_dose_and_duration_values_are_non_negative(aria_i_part):
     assert out["time_dose_seconds"] >= 0
     assert out["rest_seconds"] >= 0
     assert out["sustained_seconds"] >= 0
+
+
+# --- Fix round 1: an undefined quantity must come back None, never a
+# plausible-looking number (0.0, or a constant unrelated to q).
+
+
+def test_weighted_quantile_with_all_zero_weights_returns_none():
+    """Zero total weight means nothing for q to divide; the old branch
+    returned the same middle value regardless of q — a constant dressed
+    up as a measured quantile."""
+    assert weighted_quantile([1, 2, 3], [0, 0, 0], 0.0) is None
+    assert weighted_quantile([1, 2, 3], [0, 0, 0], 0.5) is None
+    assert weighted_quantile([1, 2, 3], [0, 0, 0], 1.0) is None
+
+
+def test_tessitura_nulls_only_duration_weighted_columns_when_durations_are_zero():
+    """Count weights are always 1.0, so they are never degenerate: on a
+    part with no duration data, the duration-weighted quartiles and width
+    go None while q0/q4 and the count-weighted quartiles stay real. This
+    is what distinguishes "null the affected fields" from "raise and null
+    everything" — a future change to raising should fail this loudly."""
+    part, piece = built((60, 0.0), (64, 0.0), (72, 0.0))
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["q1_hz_dur"] is None
+    assert out["q2_hz_dur"] is None
+    assert out["q3_hz_dur"] is None
+    assert out["tessitura_width_dur"] is None
+    assert out["q0_hz"] == pytest.approx(midi_to_hz(60), abs=0.01)
+    assert out["q4_hz"] == pytest.approx(midi_to_hz(72), abs=0.01)
+    assert out["q1_hz_cnt"] is not None
+    assert out["q2_hz_cnt"] is not None
+    assert out["q3_hz_cnt"] is not None
+    assert out["tessitura_width_cnt"] is not None
+
+
+def test_vocal_load_with_unknown_piece_duration_returns_none_rest():
+    """piece.duration_seconds=None (the model's own legal default) means
+    the piece's extent is unknown, not zero -- rest must come back None,
+    not "no rest at all". cycle_dose and friends don't need the total, so
+    they stay real."""
+    part, piece = built((60, 1.0), (62, 1.0))
+    piece.duration_seconds = None
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["rest_seconds"] is None
+    assert out["rest_ratio"] is None
+    assert out["cycle_dose"] is not None
+    assert out["time_dose_seconds"] == pytest.approx(2.0)
