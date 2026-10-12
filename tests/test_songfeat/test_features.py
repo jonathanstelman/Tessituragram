@@ -1,0 +1,219 @@
+import os
+
+import pytest
+
+from songfeat.features import extract_part, extract_piece, groups, registry, schema
+from songfeat.features.basic import _key_name, _note_name
+from songfeat.model import KeyMark, MeterMark, Note, Part, Piece, TempoMark
+
+ARIA = os.path.join("data", "test_data_arias", "1-I.mid")
+
+
+def make_piece(**overrides) -> Piece:
+    notes = overrides.pop(
+        "notes",
+        [
+            Note(midi=60, onset=0.0, duration=1.0, part=0),
+            Note(midi=64, onset=1.0, duration=1.0, part=0),
+            Note(midi=67, onset=2.0, duration=2.0, part=0),
+        ],
+    )
+    base = dict(
+        source_path="synthetic.mid",
+        source_format="midi",
+        parts=[Part(index=0, name="Voice", notes=notes)],
+        tempos=[TempoMark(onset=0.0, bpm=120.0)],
+        keys=[KeyMark(onset=0.0, sharps=0, mode="major")],
+        meters=[MeterMark(onset=0.0, numerator=4, denominator=4)],
+        measure_count=1,
+        quarter_length=4.0,
+        duration_seconds=2.0,
+    )
+    base.update(overrides)
+    return Piece(**base)
+
+
+# --- registry --------------------------------------------------------------
+
+def test_registry_is_populated():
+    assert "pitch_range" in registry()
+    assert "basic" in groups()
+
+
+def test_schema_matches_registered_fields():
+    names = schema()
+    assert "min_note" in names
+    assert "n_key_changes" in names
+    # No duplicate column names across extractors.
+    assert len(names) == len(set(names))
+
+
+def test_schema_can_filter_by_group():
+    from songfeat.record import FeatureRecord
+
+    # Other groups (jsymbolic, native) are registered too (Task 8), so
+    # filtering to "basic" now yields a strict subset of the full schema.
+    basic_only, everything = schema(["basic"]), schema()
+    assert set(basic_only) < set(everything)
+    assert basic_only[: len(FeatureRecord.IDENTITY)] == list(FeatureRecord.IDENTITY)
+    # Identity columns are always present; an unmatched group adds nothing else.
+    assert schema(["nonexistent"]) == list(FeatureRecord.IDENTITY)
+
+
+# --- individual features ---------------------------------------------------
+
+def test_pitch_range():
+    piece = make_piece()
+    out = extract_part(piece.parts[0], piece, groups_filter=["basic"])
+    assert out["min_midi"] == 60
+    assert out["min_note"] == "C4"
+    assert out["max_note"] == "G4"
+    assert out["range_semitones"] == 7
+
+
+def test_size_counts():
+    piece = make_piece()
+    out = extract_part(piece.parts[0], piece, groups_filter=["basic"])
+    assert out["n_notes"] == 3
+    assert out["n_measures"] == 1
+    assert out["notes_per_second"] == pytest.approx(1.5)
+
+
+def test_meter_and_key_reported():
+    out = extract_piece(make_piece(), groups_filter=["basic"])
+    assert out["meter_initial"] == "4/4"
+    assert out["key_initial_name"] == "C major"
+    assert out["n_key_changes"] == 0
+
+
+def test_key_changes_counted():
+    piece = make_piece(
+        keys=[
+            KeyMark(onset=0.0, sharps=0, mode="major"),
+            KeyMark(onset=4.0, sharps=2, mode="major"),
+            KeyMark(onset=8.0, sharps=2, mode="major"),
+        ]
+    )
+    out = extract_piece(piece, groups_filter=["basic"])
+    assert out["n_key_signatures"] == 3
+    assert out["n_key_changes"] == 1  # 0 -> 2, then 2 -> 2 is not a change
+
+
+def test_duplicate_key_marks_at_same_offset_are_collapsed():
+    """A score-wide signature appears once per part; that is not a change."""
+    piece = make_piece(
+        keys=[KeyMark(onset=0.0, sharps=3, mode="major") for _ in range(4)]
+    )
+    out = extract_piece(piece, groups_filter=["basic"])
+    assert out["n_key_signatures"] == 1
+    assert out["n_key_changes"] == 0
+
+
+def test_tempo_changes_counted():
+    piece = make_piece(
+        tempos=[
+            TempoMark(onset=0.0, bpm=120.0),
+            TempoMark(onset=4.0, bpm=60.0),
+        ]
+    )
+    out = extract_piece(piece, groups_filter=["basic"])
+    assert out["tempo_initial_bpm"] == 120.0
+    assert out["tempo_min_bpm"] == 60.0
+    assert out["n_tempo_changes"] == 1
+
+
+def test_lyrics_detected():
+    piece = make_piece(
+        notes=[Note(midi=60, onset=0.0, duration=1.0, part=0, lyric="la")]
+    )
+    out = extract_part(piece.parts[0], piece, groups_filter=["basic"])
+    assert out["has_lyrics"] is True
+    assert out["n_lyric_syllables"] == 1
+
+
+def test_empty_piece_yields_nulls_not_errors():
+    """The empty part here sits inside a piece with a known duration, so
+    size's rate (notes_per_second) is a real, defined zero rather than an
+    undefined None -- unlike the registry test's piece, which never
+    declares a duration at all.
+    """
+    piece = make_piece(notes=[], keys=[], tempos=[], meters=[])
+    out = {
+        **extract_piece(piece, groups_filter=["basic"]),
+        **extract_part(piece.parts[0], piece, groups_filter=["basic"]),
+    }
+
+    # piece-scoped: nothing notated.
+    assert out["tempo_initial_bpm"] is None
+    assert out["key_initial_name"] is None
+    assert out["meter_initial"] is None
+
+    # pitch_range: nothing to range over.
+    assert out["min_note"] is None
+    assert out["max_note"] is None
+    assert out["mean_midi"] is None
+    assert out["median_midi"] is None
+
+    # size: real counts/rates computed against the piece's own, nonzero
+    # duration and length -- zero notes divided by a known duration is 0.0,
+    # not undefined.
+    assert out["n_notes"] == 0
+    assert out["n_parts"] == 1
+    assert out["n_measures"] == 1
+    assert out["quarter_length"] == 4.0
+    assert out["duration_seconds"] == 2.0
+    assert out["notes_per_second"] == 0.0
+
+    # text: zero lyrics is a real, defined count.
+    assert out["has_lyrics"] is False
+    assert out["n_lyric_syllables"] == 0
+
+    assert out["_errors"] == {}
+
+
+def test_a_failing_extractor_does_not_abort_the_record():
+    """analyzed_key needs a music21 score; a hand-built Piece has none."""
+    piece = make_piece()
+    out = {
+        **extract_piece(piece, groups_filter=["basic"]),
+        **extract_part(piece.parts[0], piece, groups_filter=["basic"]),
+    }
+    assert out["analyzed_key"] is None
+    assert out["n_notes"] == 3  # other features still present
+
+
+# --- helpers ---------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "midi,expected", [(60, "C4"), (24, "C1"), (69, "A4"), (61, "C#4")]
+)
+def test_note_name(midi, expected):
+    assert _note_name(midi) == expected
+
+
+@pytest.mark.parametrize(
+    "sharps,mode,expected",
+    [
+        (0, "major", "C major"),
+        (1, "major", "G major"),
+        (-1, "major", "F major"),
+        (0, "minor", "A minor"),
+        (2, None, "D"),
+    ],
+)
+def test_key_name(sharps, mode, expected):
+    assert _key_name(sharps, mode) == expected
+
+
+# --- integration against a real file ---------------------------------------
+
+def test_real_file_matches_reference_implementation():
+    """The original CLI reports D2-E4 for this aria (a single-part file)."""
+    from songfeat import analyze
+
+    records = analyze(ARIA, groups_filter=["basic"], drop_trailing_marker=True)
+    assert len(records) == 1
+    out = records[0].features
+    assert out["min_note"] == "D2"
+    assert out["max_note"] == "E4"
+    assert out["tempo_initial_bpm"] == 140.0

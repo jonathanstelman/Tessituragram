@@ -1,0 +1,130 @@
+"""Identify which part carries the sung line.
+
+Returns the evidence alongside the score so that a wrong guess can be
+inspected rather than silently believed.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+
+from .context import PartContext
+from .model import Part, Piece
+
+#: Generous outer bounds of the human singing range, in MIDI numbers (E2-C6).
+VOCAL_LOW, VOCAL_HIGH = 40, 84
+
+#: Voice-type keywords (all are ambiguous: Soprano Saxophone, Baritone Horn, etc.).
+#: Instrument families use these register names, so all voice types are potential qualifiers.
+AMBIGUOUS_VOCAL_WORDS = (
+    "soprano", "mezzo", "alto", "tenor", "baritone", "bass"
+)
+
+#: Unambiguous vocal keywords (name no instrument qualifier).
+#: Match as whole words anywhere in the field.
+UNAMBIGUOUS_VOCAL_WORDS = (
+    "voice", "vocal", "sing", "chant",
+    "canto", "voce",  # Italian aria repertoire
+)
+
+#: Words that decorate ambiguous vocal keywords (part numbers, roles, etc.).
+#: "line" is deliberately excluded: it's standard instrumental vocabulary
+#: ("Bass Line", "Tenor Line" name an instrumental part, not a singer) and
+#: nothing vocal depends on it — "Vocal Line" still matches through the
+#: unambiguous "vocal" token regardless of how "line" is classified.
+DECORATION_WORDS = ("solo", "voice", "vocal", "part")
+
+#: How much each signal contributes. They sum to 1.0.
+WEIGHTS = {"lyrics": 0.45, "monophony": 0.25, "range": 0.20, "naming": 0.10}
+
+
+@dataclass
+class VocalEvidence:
+    confidence: float
+    is_candidate: bool
+    signals: dict[str, float] = field(default_factory=dict)
+
+
+def _range_score(part: Part) -> float:
+    """Fraction of notes inside the plausible singing range."""
+    inside = sum(1 for n in part.notes if VOCAL_LOW <= n.midi <= VOCAL_HIGH)
+    return inside / len(part.notes)
+
+
+def _is_decoration(token: str) -> bool:
+    """Check if a token is a decoration or another voice type.
+
+    Decorations are numbers, roman numerals, or specific words.
+    Other voice-type tokens are acceptable companions (e.g., "Mezzo-Soprano").
+    """
+    if token in DECORATION_WORDS:
+        return True
+    if token.isdigit():
+        return True
+    # Roman numeral: uppercase or lowercase i, v, x, l, c, d, m
+    if re.match(r"^[ivxlcdm]+$", token):
+        return True
+    # Another voice-type token (e.g., "soprano" in "Mezzo-Soprano")
+    if token in AMBIGUOUS_VOCAL_WORDS:
+        return True
+    return False
+
+
+def _naming_score(part: Part) -> float:
+    """Match vocal keywords with intelligence about ambiguous instrument qualifiers.
+
+    Unambiguous keywords (voice, vocal, etc.) match as whole words anywhere.
+    Ambiguous keywords (voice-type names) match only if other tokens are decorations
+    (numbers, roman numerals, other voice types, or words like solo/voice/vocal/part).
+    """
+    name_lower = (part.name or "").strip().lower()
+    instrument_lower = (part.instrument or "").strip().lower()
+
+    for text in [name_lower, instrument_lower]:
+        if not text:
+            continue
+
+        # Tokenise on letter/digit boundaries. Whitespace and hyphens fall
+        # out for free: they match neither alternative, so they act as
+        # delimiters without a separate split. This is what makes "Voice1"
+        # and "Soprano2" -- the corpus's actual naming convention -- tokenise
+        # the same as "Voice 1" and "Soprano 2".
+        tokens = re.findall(r"[a-z]+|\d+", text)
+
+        # Check for unambiguous words (can match as a whole word anywhere)
+        if any(word in UNAMBIGUOUS_VOCAL_WORDS for word in tokens):
+            return 1.0
+
+        # Check for ambiguous words (only match if other tokens are decorations or other voice types)
+        for token in tokens:
+            if token in AMBIGUOUS_VOCAL_WORDS:
+                # Check if all other tokens are decorations (including other voice types)
+                other_tokens = [t for t in tokens if t != token]
+                if all(_is_decoration(t) for t in other_tokens):
+                    return 1.0
+
+    return 0.0
+
+
+def detect_vocal(part: Part, piece: Piece) -> VocalEvidence:
+    if part.is_empty:
+        return VocalEvidence(
+            confidence=0.0,
+            is_candidate=False,
+            signals={"lyrics": 0.0, "monophony": 0.0, "range": 0.0, "naming": 0.0}
+        )
+
+    context = PartContext(part, piece)
+    signals = {
+        "lyrics": 1.0 if any(n.lyric for n in part.notes) else 0.0,
+        "monophony": len(context.monophonic) / len(part.notes),
+        "range": _range_score(part),
+        "naming": _naming_score(part),
+    }
+    confidence = sum(WEIGHTS[k] * v for k, v in signals.items())
+    return VocalEvidence(
+        confidence=round(confidence, 4),
+        is_candidate=confidence >= 0.5,
+        signals=signals,
+    )

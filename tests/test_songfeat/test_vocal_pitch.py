@@ -1,0 +1,300 @@
+import pytest
+
+from songfeat.context import PartContext
+from songfeat.features import base
+from songfeat.features.vocal_pitch import midi_to_hz, weighted_quantile
+from songfeat.model import Note, Part, Piece
+
+
+def built(*specs) -> tuple[Part, Piece]:
+    """specs are (midi, duration_seconds) pairs; onsets are sequential."""
+    notes = []
+    onset = 0.0
+    for midi, seconds in specs:
+        notes.append(Note(midi=midi, onset=onset, duration=seconds * 2,
+                          part=0, onset_seconds=onset * 0.5,
+                          duration_seconds=seconds))
+        onset += seconds * 2
+    part = Part(index=0, notes=notes)
+    piece = Piece(source_path="x.mid", source_format="midi", parts=[part],
+                  duration_seconds=onset * 0.5)
+    return part, piece
+
+
+def test_midi_to_hz_at_concert_a():
+    assert midi_to_hz(69) == pytest.approx(440.0)
+    assert midi_to_hz(60) == pytest.approx(261.63, abs=0.01)
+
+
+def test_weighted_quantile_matches_plain_median_with_equal_weights():
+    assert weighted_quantile([1, 2, 3], [1, 1, 1], 0.5) == pytest.approx(2)
+
+
+def test_weighted_quantile_follows_the_weight():
+    # The low value holds almost all the duration, so the median sits there.
+    assert weighted_quantile([1, 10], [99, 1], 0.5) == pytest.approx(1)
+
+
+def test_duration_and_count_weightings_can_disagree():
+    """The discrepancy this design exists to expose."""
+    part, piece = built((60, 10.0), (72, 1.0), (74, 1.0), (76, 1.0))
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["q2_hz_dur"] < out["q2_hz_cnt"]
+
+
+def test_extremes_are_unweighted():
+    part, piece = built((60, 1.0), (72, 5.0))
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["q0_hz"] == pytest.approx(midi_to_hz(60), abs=0.01)
+    assert out["q4_hz"] == pytest.approx(midi_to_hz(72), abs=0.01)
+
+
+def test_cycle_dose_is_frequency_times_time():
+    part, piece = built((69, 2.0))          # 440 Hz for 2 s
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["cycle_dose"] == pytest.approx(880.0, rel=0.001)
+
+
+def test_rest_ratio_uses_piece_duration():
+    part, piece = built((60, 1.0), (62, 1.0))
+    piece.duration_seconds = 4.0
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["time_dose_seconds"] == pytest.approx(2.0)
+    assert out["rest_seconds"] == pytest.approx(2.0)
+    assert out["rest_ratio"] == pytest.approx(0.5)
+
+
+def test_quartiles_are_ordered():
+    part, piece = built((60, 1.0), (64, 1.0), (67, 1.0), (72, 1.0))
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["q0_hz"] <= out["q1_hz_dur"] <= out["q2_hz_dur"] <= out["q3_hz_dur"] <= out["q4_hz"]
+
+
+def test_empty_part_yields_none():
+    part = Part(index=0)
+    piece = Piece(source_path="x.mid", source_format="midi", parts=[part])
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["q0_hz"] is None
+    assert out["cycle_dose"] is None
+
+
+def test_file_without_a_tempo_mark_still_computes_durations():
+    """Review Focus 3: fall back to 120 BPM rather than returning None."""
+    from songfeat.loaders import load
+    piece = load("data/test_parsing/3 Quarter Notes and Rest.mid")
+    out = base.extract_part(piece.parts[0], piece, groups_filter=["vocal"])
+    # Three quarter notes at the 120 BPM fallback are 0.5 s each, so the
+    # sounding time is exactly 1.5. "> 0" would pass at any tempo, including
+    # a wrong one -- which is the bug this test exists to catch.
+    assert out["time_dose_seconds"] == pytest.approx(1.5)
+    assert out["rest_seconds"] == pytest.approx(0.5)
+    assert out["cycle_dose"] is not None
+
+
+# --- Reference values from data/test_data_arias/1-I.mid, measured against
+# the ground-truth spreadsheet and the upstream CLI. Duration weighting
+# reproduces the spreadsheet's tessitura quartiles exactly; count weighting
+# matches neither reference. See the module docstring and the task-9 report
+# for the full comparison table.
+
+@pytest.fixture(scope="module")
+def aria_i_part():
+    from songfeat.loaders import load
+    piece = load("data/test_data_arias/1-I.mid", drop_trailing_marker=True)
+    return piece.parts[0], piece
+
+
+def test_aria_i_duration_weighted_quartiles_match_the_spreadsheet(aria_i_part):
+    part, piece = aria_i_part
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    # Tight tolerance: these are the rounded reference figures themselves,
+    # and our extractor rounds to 2 decimal places the same way.
+    assert out["q0_hz"] == pytest.approx(73.42, abs=0.01)
+    assert out["q1_hz_dur"] == pytest.approx(130.81, abs=0.01)
+    assert out["q2_hz_dur"] == pytest.approx(196.00, abs=0.01)
+    assert out["q3_hz_dur"] == pytest.approx(220.00, abs=0.01)
+    assert out["q4_hz"] == pytest.approx(329.63, abs=0.01)
+
+
+def test_aria_i_count_weighted_quartiles_differ_from_duration_weighted(aria_i_part):
+    """Pins the discrepancy the design exists to expose: a future change
+    that collapses the two weightings to one definition fails this."""
+    part, piece = aria_i_part
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["q1_hz_cnt"] == pytest.approx(146.83, abs=0.01)
+    assert out["q2_hz_cnt"] == pytest.approx(220.00, abs=0.01)
+    assert out["q3_hz_cnt"] == pytest.approx(233.08, abs=0.01)
+    assert out["q1_hz_dur"] < out["q1_hz_cnt"]
+    assert out["q2_hz_dur"] < out["q2_hz_cnt"]
+
+
+def test_aria_i_rest_seconds_matches_the_spreadsheet(aria_i_part):
+    part, piece = aria_i_part
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    # The spreadsheet's `tr` is 39.43; depends on drop_trailing_marker
+    # truncating the piece's extent to 204.0s rather than 204.857s.
+    assert out["rest_seconds"] == pytest.approx(39.43, abs=0.01)
+
+
+def test_aria_i_cycle_dose_matches_the_upstream_cli(aria_i_part):
+    part, piece = aria_i_part
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    # The CLI's Fptp is 30702.8; the spreadsheet's figure (30738.44) is a
+    # separate, disagreeing reference (see Task 16). Looser tolerance than
+    # the quartiles above because this is a sum over 454 notes where
+    # float accumulation order can shift the last decimal or two.
+    assert out["cycle_dose"] == pytest.approx(30702.8, abs=0.5)
+
+
+def test_aria_i_quartiles_are_ordered_for_both_weightings(aria_i_part):
+    part, piece = aria_i_part
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["q0_hz"] <= out["q1_hz_dur"] <= out["q2_hz_dur"] <= out["q3_hz_dur"] <= out["q4_hz"]
+    assert out["q0_hz"] <= out["q1_hz_cnt"] <= out["q2_hz_cnt"] <= out["q3_hz_cnt"] <= out["q4_hz"]
+
+
+def test_aria_i_dose_and_duration_values_are_pinned(aria_i_part):
+    """Pinned, not bounded.
+
+    These were four `>= 0` assertions on a fixed file, fifteen lines below
+    a test that pins cycle_dose to 30702.8 +/- 0.5 -- so they could not
+    fail for any value the code could plausibly produce, and said nothing
+    the tests above do not already say better. sustained_seconds is 0.0
+    because aria I has no note reaching SUSTAINED_MIN_SECONDS (1.5s); that
+    is a real finding about the file, and a change to the threshold or to
+    the note set would now move it.
+    """
+    part, piece = aria_i_part
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["cycle_dose"] == pytest.approx(30702.95, abs=0.5)
+    assert out["time_dose_seconds"] == pytest.approx(164.57, abs=0.01)
+    assert out["rest_seconds"] == pytest.approx(39.43, abs=0.01)
+    assert out["sustained_note_count"] == 0
+    assert out["sustained_seconds"] == 0.0
+
+
+# --- Fix round 1: an undefined quantity must come back None, never a
+# plausible-looking number (0.0, or a constant unrelated to q).
+
+
+def test_weighted_quantile_with_all_zero_weights_returns_none():
+    """Zero total weight means nothing for q to divide; the old branch
+    returned the same middle value regardless of q — a constant dressed
+    up as a measured quantile."""
+    assert weighted_quantile([1, 2, 3], [0, 0, 0], 0.0) is None
+    assert weighted_quantile([1, 2, 3], [0, 0, 0], 0.5) is None
+    assert weighted_quantile([1, 2, 3], [0, 0, 0], 1.0) is None
+
+
+def test_tessitura_nulls_only_duration_weighted_columns_when_durations_are_zero():
+    """Count weights are always 1.0, so they are never degenerate: on a
+    part with no duration data, the duration-weighted quartiles and width
+    go None while q0/q4 and the count-weighted quartiles stay real. This
+    is what distinguishes "null the affected fields" from "raise and null
+    everything" — a future change to raising should fail this loudly."""
+    part, piece = built((60, 0.0), (64, 0.0), (72, 0.0))
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["q1_hz_dur"] is None
+    assert out["q2_hz_dur"] is None
+    assert out["q3_hz_dur"] is None
+    assert out["tessitura_width_dur"] is None
+    assert out["q0_hz"] == pytest.approx(midi_to_hz(60), abs=0.01)
+    assert out["q4_hz"] == pytest.approx(midi_to_hz(72), abs=0.01)
+    assert out["q1_hz_cnt"] is not None
+    assert out["q2_hz_cnt"] is not None
+    assert out["q3_hz_cnt"] is not None
+    assert out["tessitura_width_cnt"] is not None
+
+
+def test_vocal_load_with_unknown_piece_duration_returns_none_rest():
+    """piece.duration_seconds=None (the model's own legal default) means
+    the piece's extent is unknown, not zero -- rest must come back None,
+    not "no rest at all". cycle_dose and friends don't need the total, so
+    they stay real."""
+    part, piece = built((60, 1.0), (62, 1.0))
+    piece.duration_seconds = None
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["rest_seconds"] is None
+    assert out["rest_ratio"] is None
+    assert out["cycle_dose"] is not None
+    assert out["time_dose_seconds"] == pytest.approx(2.0)
+
+
+# --- Fix round 3: rest is a wall-clock quantity -----------------------------
+
+def chordal(total_seconds: float, *chords) -> tuple[Part, Piece]:
+    """chords are (onset_seconds, duration_seconds, midi...) tuples."""
+    notes = []
+    for onset, seconds, *pitches in chords:
+        for midi in pitches:
+            notes.append(Note(
+                midi=midi, onset=onset * 2, duration=seconds * 2, part=0,
+                onset_seconds=onset, duration_seconds=seconds,
+                is_chord_member=len(pitches) > 1,
+            ))
+    part = Part(index=0, notes=notes)
+    piece = Piece(source_path="x.mid", source_format="midi", parts=[part],
+                  duration_seconds=total_seconds)
+    return part, piece
+
+
+def test_rest_subtracts_wall_clock_sounding_time_not_the_duration_sum():
+    """A chord's members overlap, so summing their durations over-counts.
+
+    One four-note chord of 1 s in a 10 s piece occupies 1 s of elapsed
+    time; the duration sum is 4 s. Rest is 9 s. Subtracting the sum gives
+    6 s, which is not a measurement of anything.
+    """
+    part, piece = chordal(10.0, (0.0, 1.0, 60, 64, 67, 72))
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["rest_seconds"] == pytest.approx(9.0)
+    assert out["rest_ratio"] == pytest.approx(0.9)
+
+
+def test_time_dose_stays_the_duration_sum():
+    """Cumulative phonatory dose is deliberately a sum, not a union: each
+    voice of a chord really does phonate. Only `rest` changes."""
+    part, piece = chordal(10.0, (0.0, 1.0, 60, 64, 67, 72))
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["time_dose_seconds"] == pytest.approx(4.0)
+
+
+def test_a_saturated_chordal_part_reports_zero_rest_as_a_real_measurement():
+    """The clamp's worst case: a chord repeated through the whole piece.
+
+    The old code reached rest_seconds == 0.0 only because max(..., 0.0)
+    hid a -30 s subtraction. Here the union genuinely fills the piece, so
+    0.0 is the true answer and must still be reported as one.
+    """
+    chords = [(float(i), 1.0, 60, 64, 67, 72) for i in range(10)]
+    part, piece = chordal(10.0, *chords)
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["time_dose_seconds"] == pytest.approx(40.0)
+    assert out["rest_seconds"] == pytest.approx(0.0)
+    assert out["rest_ratio"] == pytest.approx(0.0)
+    assert out["rest_undefined_reason"] is None
+
+
+def test_rest_is_none_with_a_reason_when_sounding_exceeds_the_total():
+    """An impossible input must not produce a plausible zero.
+
+    The clamp turned "the numbers do not add up" into "there is no rest".
+    Per the project rule, an undefined quantity is None and says why.
+    """
+    part, piece = chordal(1.0, (0.0, 5.0, 60))
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["rest_seconds"] is None
+    assert out["rest_ratio"] is None
+    # The reason must carry the two numbers that did not add up, so the
+    # inconsistency is diagnosable from the output row alone.
+    assert "5s" in out["rest_undefined_reason"]
+    assert "1s" in out["rest_undefined_reason"]
+
+
+def test_rest_is_none_with_a_reason_when_the_total_is_unknown():
+    part, piece = chordal(10.0, (0.0, 1.0, 60))
+    piece.duration_seconds = None
+    out = base.extract_part(part, piece, groups_filter=["vocal"])
+    assert out["rest_seconds"] is None
+    assert out["rest_ratio"] is None
+    assert "unknown" in out["rest_undefined_reason"].lower()

@@ -1,3 +1,4 @@
+annotated-types==0.8.0
 asgiref==3.12.1
 certifi==2026.6.17
 cffi==2.1.0
@@ -13,6 +14,9 @@ et_xmlfile==2.0.0
 filelock==4.1.0
 fonttools==4.63.0
 fpdf2==2.8.7
+google-auth==2.61.0
+google-auth-oauthlib==1.5.0
+gspread==6.2.1  # optional: only needed to construct SheetsSink
 idna==3.18
 iniconfig==2.3.0
 joblib==1.5.3
@@ -23,13 +27,18 @@ more-itertools==11.1.0
 msal==1.37.0
 music21==10.1.0
 numpy==2.4.2
+oauthlib==4.0.0
 openpyxl==3.1.5
 packaging==26.0
 pandas==3.0.0
 pillow==12.3.0
 pluggy==1.6.0
 psycopg2-binary==2.9.12
+pyasn1==0.6.4
+pyasn1-modules==0.4.2
 pycparser==3.0
+pydantic==2.14.0
+pydantic-core==2.50.0
 Pygments==2.19.2
 PyJWT==2.13.0
 pyparsing==3.3.2
@@ -37,8 +46,11 @@ pytest==9.0.2
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
 requests==2.34.2
+requests-oauthlib==2.0.0
 six==1.17.0
 sqlparse==0.5.5
+typing-extensions==4.16.0
+typing-inspection==0.4.4
 tzdata==2025.3
 urllib3==2.7.0
 webcolors==25.10.0
