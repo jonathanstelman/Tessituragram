@@ -10,7 +10,10 @@ The band MAY NEVER DEFAULT, in either direction. A reassuring "child"
 about a song nobody read is the one genuinely harmful output this design
 could produce. A conservative "adult" is not the safe alternative: it
 would quietly hide most of the repertoire from the people this is for.
-Any missing advisory makes the band null.
+Any missing advisory among the nine rule v1 actually reads makes the
+band null; the other eighteen advisory columns are not preconditions,
+so a batch failure elsewhere never nulls this one (see ``_RULE_INPUTS``
+and ``band_from`` below for exactly which nine, and why).
 """
 
 from __future__ import annotations
@@ -19,12 +22,30 @@ from typing import Any
 
 from ...model import Part, Piece
 from ..base import feature
-from .advisories import ADVISORY_FIELDS, DIMENSIONS
+from .advisories import DIMENSIONS
 from .service import classify_part
 
 RULE_VERSION = "v1"
 
 AGE_FIELDS: tuple[str, ...] = ("age_band", "age_band_driver", "age_band_rule")
+
+#: Exactly the nine advisory columns rule v1 reads: the five
+#: dimensions it gates on (sex, violence, self_harm, substance_use,
+#: language) plus death, and the three modifiers (violence_depicted,
+#: self_harm_first_person, death_first_person) those gates consult.
+#: positive_messages, role_models and religious_content -- and every
+#: modifier column no clause reads, such as advisory_sex_depicted --
+#: are deliberately NOT inputs, and must stay out of this set: one
+#: failed batch nulls only its own columns, never a sibling axis's, so
+#: this precondition must name only what the rule actually touches.
+_RULE_INPUTS: tuple[str, ...] = (
+    "advisory_sex",
+    "advisory_violence", "advisory_violence_depicted",
+    "advisory_self_harm", "advisory_self_harm_first_person",
+    "advisory_substance_use",
+    "advisory_language",
+    "advisory_death", "advisory_death_first_person",
+)
 
 #: A modifier probability at or above this counts as holding.
 FIRES = 0.5
@@ -77,12 +98,32 @@ def _driver(hits) -> str | None:
 def band_from(columns: dict[str, Any]) -> dict[str, Any]:
     """Derive the band from already-computed advisory columns.
 
-    Never defaults: if any of the 27 advisory columns is missing, the
-    band, driver and (for consistency with the rest of this dict) are
-    reported null -- only the rule version is always known, since it
-    names the rule that was consulted, not its verdict.
+    Never defaults: if any of the NINE columns rule v1 actually reads
+    (``_RULE_INPUTS``) is missing, ``age_band`` and ``age_band_driver``
+    are null -- only ``age_band_rule`` is always known, since it names
+    the rule consulted, not its verdict.
+
+    The precondition is deliberately "all nine, always" rather than
+    "whichever subset the clause that fired happens to read": an
+    ``adult`` verdict from the first matching clause would in fact be
+    safe even with a later clause's input missing, since adult is the
+    highest band and nothing could raise it further -- but a ``child``
+    verdict needs every one of the nine checked to be trustworthy, and
+    a null-condition that changes depending on which clause fired is
+    far harder to audit than one single precondition. Checking all
+    nine, always, satisfies the "never without having read its inputs"
+    requirement with one rule instead of three.
+
+    Only these nine are preconditions. The other eighteen advisory
+    columns -- positive_messages, role_models, religious_content, and
+    every modifier no clause in rule v1 reads (advisory_sex_depicted,
+    advisory_violence_first_person, and so on) -- must NOT be checked
+    here: the spec commits to "one failed batch nulls its own columns
+    and no others," and with 153 questions spread across 8 calls, a
+    batch holding only those eighteen unrelated columns is a real
+    scenario, not an edge case worth over-guarding against.
     """
-    if any(columns.get(field) is None for field in ADVISORY_FIELDS):
+    if any(columns.get(field) is None for field in _RULE_INPUTS):
         return {"age_band": None, "age_band_driver": None,
                 "age_band_rule": RULE_VERSION}
 
@@ -105,11 +146,14 @@ def band_from(columns: dict[str, Any]) -> dict[str, Any]:
         "``age_band_rule`` recording the rule version so a "
         "re-derivation is traceable. Bands rather than a numeric age "
         "because no validation data here could justify the difference "
-        "between 13 and 14. NEVER DEFAULTS: any missing advisory makes "
-        "the band null, in both directions -- a reassuring 'child' about "
-        "an unread song is harmful, and a conservative 'adult' would hide "
-        "most of the repertoire. Advisory: a teacher's judgment, not a "
-        "rating."
+        "between 13 and 14. NEVER DEFAULTS: if any of the nine advisory "
+        "columns rule v1 actually reads is missing, the band is null, in "
+        "both directions -- a reassuring 'child' about an unread song is "
+        "harmful, and a conservative 'adult' would hide most of the "
+        "repertoire. positive_messages, role_models, religious_content, "
+        "and every modifier no clause reads are not preconditions, so a "
+        "batch failure elsewhere never nulls this column. Advisory: a "
+        "teacher's judgment, not a rating."
     ),
     fields=AGE_FIELDS,
     best_with=("musicxml",),

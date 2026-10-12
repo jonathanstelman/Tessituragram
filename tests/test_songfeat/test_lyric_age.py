@@ -155,3 +155,49 @@ def test_violence_below_adult_threshold_but_above_adolescent_is_adolescent():
     below_adult = age.band_from(_advisories(
         advisory_violence=3.9, advisory_violence_depicted=1.0))
     assert below_adult["age_band"] == "adolescent", "violence below 4 can't be adult regardless of depicted"
+
+
+# --- Fix round 1: the precondition is exactly the nine columns rule v1
+# reads, not all 27 advisory columns. The spec commits to "one failed
+# batch nulls its own columns and no others," so a batch holding only
+# positive_messages/role_models/religious_content (or a modifier no
+# clause reads) must never null age_band on its own.
+
+
+def test_only_the_nine_rule_inputs_need_be_present():
+    """This is the test that would have failed under the old,
+    over-broad precondition: every OTHER advisory column is simply
+    absent from the dict (as it would be if its batch had failed, or
+    had not been asked), and the band is still a real verdict."""
+    columns = {field: 0.0 for field in age._RULE_INPUTS}
+    out = age.band_from(columns)
+    assert out["age_band"] == "child"
+    assert out["age_band_driver"] is None
+    assert out["age_band_rule"] == "v1"
+
+
+def test_each_of_the_nine_rule_inputs_missing_nulls_the_band():
+    checked = 0
+    for missing_field in age._RULE_INPUTS:
+        columns = {field: 0.0 for field in age._RULE_INPUTS}
+        columns[missing_field] = None
+        out = age.band_from(columns)
+        assert out["age_band"] is None, missing_field
+        assert out["age_band_driver"] is None, missing_field
+        assert out["age_band_rule"] == "v1", missing_field
+        checked += 1
+    assert checked == 9
+
+
+def test_the_nine_rule_inputs_are_exactly_these_and_no_others():
+    """Pins the input set itself, not just its size, so a future edit
+    to rule v1 that silently widens or narrows what it reads is
+    caught here rather than only in a derived test's behaviour."""
+    assert set(age._RULE_INPUTS) == {
+        "advisory_sex",
+        "advisory_violence", "advisory_violence_depicted",
+        "advisory_self_harm", "advisory_self_harm_first_person",
+        "advisory_substance_use",
+        "advisory_language",
+        "advisory_death", "advisory_death_first_person",
+    }
