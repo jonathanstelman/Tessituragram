@@ -2,9 +2,9 @@
 <!DOCTYPE score-partwise  PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
 <score-partwise version="4.0">
   <work>
-    <work-title>They Dressed Me as a Bride</work-title>
+    <work-title>Sono Tornata Tardi</work-title>
   </work>
-  <movement-title>They Dressed Me as a Bride</movement-title>
+  <movement-title>Sono Tornata Tardi</movement-title>
   <identification>
     <creator type="composer">Music21</creator>
     <encoding>
@@ -49,19 +49,19 @@
         <type>quarter</type>
         <lyric name="1" number="1">
           <syllabic>single</syllabic>
-          <text>They</text>
+          <text>Sono</text>
         </lyric>
         <lyric name="2" number="2">
           <syllabic>single</syllabic>
-          <text>I</text>
+          <text>Sono</text>
         </lyric>
         <lyric name="3" number="3">
           <syllabic>single</syllabic>
-          <text>A</text>
+          <text>La</text>
         </lyric>
         <lyric name="4" number="4">
           <syllabic>single</syllabic>
-          <text>A</text>
+          <text>Non</text>
         </lyric>
       </note>
       <note>
@@ -72,68 +72,68 @@
         <duration>10080</duration>
         <type>quarter</type>
         <lyric name="1" number="1">
-          <syllabic>single</syllabic>
-          <text>dressed</text>
-        </lyric>
-        <lyric name="2" number="2">
-          <syllabic>single</syllabic>
-          <text>wore</text>
-        </lyric>
-        <lyric name="3" number="3">
-          <syllabic>single</syllabic>
-          <text>wife</text>
-        </lyric>
-        <lyric name="4" number="4">
-          <syllabic>single</syllabic>
-          <text>maid</text>
-        </lyric>
-      </note>
-      <note>
-        <pitch>
-          <step>C</step>
-          <octave>4</octave>
-        </pitch>
-        <duration>10080</duration>
-        <type>quarter</type>
-        <lyric name="1" number="1">
-          <syllabic>single</syllabic>
-          <text>me</text>
-        </lyric>
-        <lyric name="2" number="2">
-          <syllabic>single</syllabic>
-          <text>my</text>
-        </lyric>
-        <lyric name="3" number="3">
-          <syllabic>single</syllabic>
-          <text>they</text>
-        </lyric>
-        <lyric name="4" number="4">
-          <syllabic>single</syllabic>
-          <text>no</text>
-        </lyric>
-      </note>
-      <note>
-        <pitch>
-          <step>C</step>
-          <octave>4</octave>
-        </pitch>
-        <duration>10080</duration>
-        <type>quarter</type>
-        <lyric name="1" number="1">
-          <syllabic>single</syllabic>
-          <text>as</text>
+          <syllabic>begin</syllabic>
+          <text>tor</text>
         </lyric>
         <lyric name="2" number="2">
           <syllabic>begin</syllabic>
-          <text>mo</text>
+          <text>stan</text>
         </lyric>
         <lyric name="3" number="3">
-          <syllabic>single</syllabic>
-          <text>said</text>
+          <syllabic>begin</syllabic>
+          <text>por</text>
         </lyric>
         <lyric name="4" number="4">
           <syllabic>single</syllabic>
-          <text>more</text>
+          <text>sono</text>
+        </lyric>
+      </note>
+      <note>
+        <pitch>
+          <step>C</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>10080</duration>
+        <type>quarter</type>
+        <lyric name="1" number="1">
+          <syllabic>end</syllabic>
+          <text>nata</text>
+        </lyric>
+        <lyric name="2" number="2">
+          <syllabic>end</syllabic>
+          <text>ca</text>
+        </lyric>
+        <lyric name="3" number="3">
+          <syllabic>end</syllabic>
+          <text>ta</text>
+        </lyric>
+        <lyric name="4" number="4">
+          <syllabic>single</syllabic>
+          <text>mai</text>
+        </lyric>
+      </note>
+      <note>
+        <pitch>
+          <step>C</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>10080</duration>
+        <type>quarter</type>
+        <lyric name="1" number="1">
+          <syllabic>begin</syllabic>
+          <text>tar</text>
+        </lyric>
+        <lyric name="2" number="2">
+          <syllabic>single</syllabic>
+          <text>ma</text>
+        </lyric>
+        <lyric name="3" number="3">
+          <syllabic>single</syllabic>
+          <text>era</text>
+        </lyric>
+        <lyric name="4" number="4">
+          <syllabic>begin</syllabic>
+          <text>sta</text>
         </lyric>
       </note>
     </measure>
@@ -147,20 +147,20 @@
         <duration>10080</duration>
         <type>quarter</type>
         <lyric name="1" number="1">
-          <syllabic>single</syllabic>
-          <text>a</text>
+          <syllabic>end</syllabic>
+          <text>di</text>
         </lyric>
         <lyric name="2" number="2">
-          <syllabic>end</syllabic>
-          <text>ther's</text>
+          <syllabic>begin</syllabic>
+          <text>can</text>
         </lyric>
         <lyric name="3" number="3">
-          <syllabic>single</syllabic>
-          <text>and</text>
+          <syllabic>begin</syllabic>
+          <text>a</text>
         </lyric>
         <lyric name="4" number="4">
-          <syllabic>single</syllabic>
-          <text>but</text>
+          <syllabic>end</syllabic>
+          <text>ta</text>
         </lyric>
       </note>
       <note>
@@ -172,19 +172,90 @@
         <type>quarter</type>
         <lyric name="1" number="1">
           <syllabic>single</syllabic>
-          <text>bride</text>
+          <text>dal</text>
+        </lyric>
+        <lyric name="2" number="2">
+          <syllabic>end</syllabic>
+          <text>to</text>
+        </lyric>
+        <lyric name="3" number="3">
+          <syllabic>end</syllabic>
+          <text>perta</text>
+        </lyric>
+        <lyric name="4" number="4">
+          <syllabic>begin</syllabic>
+          <text>tan</text>
+        </lyric>
+      </note>
+      <note>
+        <pitch>
+          <step>C</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>10080</duration>
+        <type>quarter</type>
+        <lyric name="1" number="1">
+          <syllabic>single</syllabic>
+          <text>mercato</text>
         </lyric>
         <lyric name="2" number="2">
           <syllabic>single</syllabic>
-          <text>pride</text>
+          <text>piano</text>
         </lyric>
         <lyric name="3" number="3">
           <syllabic>single</syllabic>
-          <text>sighed</text>
+          <text>e</text>
         </lyric>
         <lyric name="4" number="4">
+          <syllabic>end</syllabic>
+          <text>to</text>
+        </lyric>
+      </note>
+      <note>
+        <pitch>
+          <step>C</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>10080</duration>
+        <type>quarter</type>
+        <lyric name="3" number="3">
           <syllabic>single</syllabic>
-          <text>tied</text>
+          <text>sono</text>
+        </lyric>
+        <lyric name="4" number="4">
+          <syllabic>begin</syllabic>
+          <text>conten</text>
+        </lyric>
+      </note>
+    </measure>
+    <!--========================= Measure 3 ==========================-->
+    <measure implicit="no" number="3">
+      <note>
+        <pitch>
+          <step>C</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>10080</duration>
+        <type>quarter</type>
+        <lyric name="3" number="3">
+          <syllabic>begin</syllabic>
+          <text>en</text>
+        </lyric>
+        <lyric name="4" number="4">
+          <syllabic>end</syllabic>
+          <text>ta</text>
+        </lyric>
+      </note>
+      <note>
+        <pitch>
+          <step>C</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>10080</duration>
+        <type>quarter</type>
+        <lyric name="3" number="3">
+          <syllabic>end</syllabic>
+          <text>trata</text>
         </lyric>
       </note>
       <barline location="right">

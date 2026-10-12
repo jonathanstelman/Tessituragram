@@ -1,4 +1,21 @@
 {
+  "_note": [
+    "Absent keys mean labelled false, zero or not present. Only the perspective",
+    "section is written exhaustively, because its None-vs-unspecified distinction",
+    "cannot be inferred from absence.",
+    "GATING: the love_interest_* fields are gated on relational_focus_present and",
+    "NOT on relationship_is_romantic. The spec's gate is relational focus, not",
+    "romance, so these fields are populated -- and non-null -- for a friendship, a",
+    "bereavement or a folktale focus too, wherever the song centres on one specific",
+    "other. The key name asserts romance; the data does not mean it. The spec fixes",
+    "the column names, so this note is the fix.",
+    "They are null, never false, exactly when relational_focus_present is false.",
+    "LANGUAGE: cast-agreement is Italian, the only non-English song. Grammatical",
+    "agreement cannot be expressed in English, so without it that casting mechanism",
+    "would have no case at all. Its agreement figure is measured on one song in a",
+    "language the spec does not validate, and must be reported with that caveat",
+    "rather than counted as validation."
+  ],
   "split": {
     "dev": [
       "plain-love", "plain-nature", "plain-friendship", "plain-faith",
@@ -10,7 +27,7 @@
       "cast-named-role", "cast-biology"
     ],
     "held_out": [
-      "cast-agreement", "cast-two-mechanisms", "cast-none",
+      "cast-life-stage", "cast-agreement", "cast-two-mechanisms", "cast-none",
       "sensitive-parent-central", "sensitive-parent-passing",
       "sensitive-third-person", "advisory-first-person-violence",
       "advisory-narrated-violence", "advisory-alluded-sex",
@@ -394,7 +411,7 @@
         "love_interest_cast_by_biology": false,
         "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
       },
-      "sensitive": {"abuse": true, "abuse_centrality": true, "abuse_first_person": false}
+      "sensitive": {"abuse": true, "abuse_centrality": true, "abuse_first_person": true}
     },
     "bystanders": {
       "themes": {"activities": true, "activities_eating": true, "social": true,
@@ -494,9 +511,29 @@
       },
       "sensitive": {}
     },
-    "cast-agreement": {
+    "cast-life-stage": {
       "themes": {"love": true, "love_courtship": true, "relationships": true,
                  "relationships_family": true},
+      "tone": {"sincere": true},
+      "advisories": {},
+      "perspective": {
+        "narrator_gender": "female", "narrator_gender_cast": 5,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": true,
+        "relational_focus_present": false, "relationship_is_romantic": false,
+        "addressee_present": false,
+        "love_interest_gender": null, "love_interest_gender_cast": null,
+        "love_interest_cast_by_pronouns": null, "love_interest_cast_by_address": null,
+        "love_interest_cast_by_agreement": null, "love_interest_cast_by_named_role": null,
+        "love_interest_cast_by_biology": null,
+        "gender_adaptation_cost": 5, "gender_adaptation_blocker": "biology"
+      },
+      "sensitive": {}
+    },
+    "cast-agreement": {
+      "themes": {"relationships": true, "relationships_home": true,
+                 "activities": true, "activities_music": true},
       "tone": {"sincere": true},
       "advisories": {},
       "perspective": {

@@ -14,6 +14,15 @@ No song is about a real or hypothetical student. The bereavement and
 advisory texts describe invented situations, because nothing about a
 student is ever stored anywhere in this project, fixtures included.
 
+English, with one exception. "cast-agreement" is Italian, because the
+grammatical-agreement casting mechanism the spec names ("sono stanca",
+"je suis allee") cannot be expressed in English at all: without it that
+mechanism would have no case in the corpus while a song claimed to be
+it. Its agreement figure is therefore measured on a single
+non-validated-language song and must be reported with that caveat, not
+counted as validation. Everything else is English, per the spec's
+English-first decision.
+
 FROZEN. These texts and tests/data/lyrics_corpus/labels.json were
 written before any classifier question wording existed, and must not be
 edited to suit a question. Adding a song is fine; rewording one to make
@@ -310,15 +319,34 @@ SONGS: tuple[Song, ...] = (
         ),
     ),
     Song(
-        slug="cast-agreement",
+        slug="cast-life-stage",
         title="They Dressed Me as a Bride",
         language="en",
-        case="gender cast by a gendered noun at every rhyme; adaptation cost 4",
+        case=(
+            "gender cast by marital life-stage nouns at every rhyme "
+            "(bride, wife, maid); not adaptable, cost 5"
+        ),
         verses=(
             ("They", "dressed", "me", "as", "a", "bride"),
             ("I", "wore", "my", "mo-", "ther's", "pride"),
             ("A", "wife", "they", "said", "and", "sighed"),
             ("A", "maid", "no", "more", "but", "tied"),
+        ),
+    ),
+    Song(
+        slug="cast-agreement",
+        title="Sono Tornata Tardi",
+        language="it",
+        case=(
+            "gender cast by grammatical agreement -- feminine participle and "
+            "adjective endings, the one mechanism English cannot express; "
+            "adaptation cost 4"
+        ),
+        verses=(
+            ("Sono", "tor-", "nata", "tar-", "di", "dal", "mercato"),
+            ("Sono", "stan-", "ca", "ma", "can-", "to", "piano"),
+            ("La", "por-", "ta", "era", "a-", "perta", "e", "sono", "en-", "trata"),
+            ("Non", "sono", "mai", "sta-", "ta", "tan-", "to", "conten-", "ta"),
         ),
     ),
     Song(
