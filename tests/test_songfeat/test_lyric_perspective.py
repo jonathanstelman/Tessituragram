@@ -44,6 +44,28 @@ def test_pronouns_alone_cost_one():
     assert out["gender_adaptation_blocker"] == "pronouns"
 
 
+def test_the_derived_cost_columns_are_int_not_float():
+    """CAST_MECHANISMS holds five integer costs; the derived columns are
+    a lookup into that table, never a model-returned probability-weighted
+    mean, so they can only land on 0, 1, 3, 4 or 5. ``== 1`` alone would
+    also pass for ``1.0``, which is exactly the regression this guards:
+    a float here would serialise as "1.0" in a human-facing CSV/JSON
+    column whose values are meant to read as a discrete cost."""
+    out = perspective.columns_from(_answers(
+        narrator_cast_by_pronouns={"probability": 0.97},
+    ))
+    assert isinstance(out["narrator_gender_cast"], int)
+    assert not isinstance(out["narrator_gender_cast"], bool)
+    assert isinstance(out["gender_adaptation_cost"], int)
+    assert not isinstance(out["gender_adaptation_cost"], bool)
+
+    score, _blocker = perspective.cast_score(_answers(
+        narrator_cast_by_pronouns={"probability": 0.97},
+    ), "narrator")
+    assert isinstance(score, int)
+    assert not isinstance(score, bool)
+
+
 def test_a_named_role_costs_five_and_is_the_blocker():
     out = perspective.columns_from(_answers(
         narrator_cast_by_named_role={"probability": 0.91},
@@ -75,7 +97,9 @@ def test_a_tie_at_equal_cost_breaks_by_declaration_order():
 def test_no_mechanism_firing_is_a_real_zero_with_no_blocker():
     out = perspective.columns_from(_answers())
     assert out["narrator_gender_cast"] == 0
+    assert isinstance(out["narrator_gender_cast"], int)
     assert out["gender_adaptation_cost"] == 0
+    assert isinstance(out["gender_adaptation_cost"], int)
     assert out["gender_adaptation_blocker"] is None
 
 

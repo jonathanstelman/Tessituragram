@@ -109,12 +109,17 @@ def _choice_or_none(answer: Answer | None) -> str | None:
 
 def cast_score(
     answers: dict[str, Answer], subject: str
-) -> tuple[float | None, str | None]:
+) -> tuple[int | None, str | None]:
     """The 0-5 adaptation cost for one subject, and the mechanism that
     set it, or (None, None) if no mechanism question was answered for
     this subject at all.
 
-    A real 0.0 (every answered mechanism present but none established)
+    An int, not a float: the value is a lookup into CAST_MECHANISMS'
+    five integer costs, never a model-returned probability-weighted
+    mean, so it can only ever land on 0, 1, 3, 4 or 5 -- a float would
+    advertise a precision (3.5?) the derivation cannot produce.
+
+    A real 0 (every answered mechanism present but none established)
     is distinct from None (no mechanism question was asked for this
     subject): the former says "nothing was cast"; the latter says "we
     don't know". Ties at equal cost break by CAST_MECHANISMS order,
@@ -132,7 +137,7 @@ def cast_score(
             worst_cost, blocker = cost, mechanism
     if not seen:
         return None, None
-    return float(worst_cost), blocker
+    return worst_cost, blocker
 
 
 def columns_from(answers: dict[str, Answer]) -> dict[str, Any]:
@@ -148,7 +153,7 @@ def columns_from(answers: dict[str, Answer]) -> dict[str, Any]:
     gate = out[_GATE]
     gated_open = gate is not None and gate >= FIRES
 
-    costs: list[tuple[float, str | None]] = []
+    costs: list[tuple[int, str | None]] = []
     for subject, _description in SUBJECTS:
         if subject == "love_interest" and not gated_open:
             # Null, not 0.0: with no relational focus there is no
