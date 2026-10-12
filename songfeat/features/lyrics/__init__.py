@@ -9,3 +9,4 @@ from . import meta  # noqa: F401  (registration side effect)
 from . import themes  # noqa: F401
 from . import tone  # noqa: F401
 from . import advisories  # noqa: F401
+from . import perspective  # noqa: F401

@@ -3,11 +3,11 @@ import pytest
 from songfeat.features.lyrics import questions as q
 
 #: Pinned, not a floor: 0 before any axis registered, 65 after themes
-#: (Task 5), now 98 with tone (6) and advisories (27) added (Task 6),
-#: raised again in Tasks 7-8 as perspective, sensitive and meta
-#: register. Exists so a test that loops over "full" cannot pass by
-#: iterating zero times without anyone noticing.
-EXPECTED_FULL_QUESTIONS = 98
+#: (Task 5), 98 with tone (6) and advisories (27) added (Task 6), now
+#: 113 with perspective (15) added (Task 7), raised again in Task 8 as
+#: sensitive and meta register. Exists so a test that loops over "full"
+#: cannot pass by iterating zero times without anyone noticing.
+EXPECTED_FULL_QUESTIONS = 113
 
 
 def test_every_question_id_is_unique():

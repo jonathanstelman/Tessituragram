@@ -170,3 +170,19 @@ ADVISORY_MODIFIERS: tuple[tuple[str, str], ...] = (
     ("first_person", "Does the singer voice this content as themselves, in the first person?"),
     ("depicted", "Does the text depict this content directly, rather than alluding to it?"),
 )
+
+#: "unspecified" means the text does not say. It is a real answer and is
+#: distinct from None, which means we did not ask.
+GENDERS: tuple[str, ...] = (
+    "female", "male", "non_binary", "collective", "unspecified",
+)
+
+#: The mechanism questions, asked once per subject. The subject label is
+#: substituted from our own constants, never from a lyric.
+CAST_QUESTIONS: dict[str, str] = {
+    "pronouns": "Is this established by pronouns?",
+    "address": "Is this established by a gendered term of address, such as 'my lady' or 'sir'?",
+    "agreement": "Is this established by gendered grammar, such as an adjective or participle ending?",
+    "named_role": "Is this established by naming a specific character whose gender is known?",
+    "biology": "Is this established by a biological or life-stage detail, such as pregnancy or boyhood?",
+}
