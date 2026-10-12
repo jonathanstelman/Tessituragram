@@ -418,16 +418,22 @@ from a teacher's spreadsheet deliberately, but never lost by accident.
 | API call fails or times out after retries | that batch's columns `None`; reason carries the status; other batches keep their values |
 | A question returns an unparseable answer | that column `None`; reason names the question |
 | `relational_focus_present` low | love-interest columns `None` by design, not by failure |
+| Column outside the active question set | `None`; reason names the set, distinctly from "no lyrics" |
 
 A partial result is a legitimate outcome: one failed batch nulls its own columns and no others.
 The run exits non-zero only if every file failed, matching `pipeline.run`'s existing behaviour.
 
 ## Caching and determinism
 
-Cache key: `sha256(normalised_text) + clf_model + clf_question_set`, where normalisation is
-Unicode NFC, LF line endings, trailing whitespace stripped per line, and a single trailing
-newline — defined explicitly because the cache key depends on it and a platform-dependent hash
-would silently halve the hit rate. A hit returns the stored
+Cache key: `sha256(normalised_text) + clf_model + question_id + sha256(question_text)` — **per
+question, not per question set**. Normalisation is Unicode NFC, LF line endings, trailing
+whitespace stripped per line, and a single trailing newline, defined explicitly because the key
+depends on it and a platform-dependent hash would silently halve the hit rate.
+
+Keying per question is what makes the two spend controls below free: a lean run's answers are
+reusable by a later full run, and rewording one question invalidates one column rather than the
+whole song. A per-set key would have thrown away every answer on every wording change, which is
+exactly the moment the cache is most needed. A hit returns the stored
 answers and their original `clf_classified_at`; nothing is re-sent. Default location
 `.songfeat/jev-cache.sqlite`, gitignored, path configurable.
 
@@ -436,8 +442,43 @@ bit-reproducible. Consequence worth stating: two databases built from the same s
 different times may differ slightly if either was built cache-cold. The provenance columns are
 how that becomes visible instead of mysterious.
 
-Changing a question's wording bumps `clf_question_set` and invalidates exactly the columns that
-question feeds — not the whole cache.
+## Question sets and spend control
+
+The cache protects re-runs of unchanged input. It does not protect iteration: rewording a
+question is what invalidates it, and that is the whole activity during development. Running 153
+questions against dozens of songs repeatedly is how a cheap API becomes a bill nobody budgeted
+for. Three controls, all of which exist for development rather than for a teacher's real run:
+
+**`--lyrics-questions core|full`** (default `full`). `core` is a named subset declared in code
+beside the full set — 13 questions, one batched call instead of eight, about 8% of the cost and
+an eighth of the latency. It is chosen to exercise every code path rather than to sample the
+vocabulary:
+
+| Questions | What they exercise |
+|---|---|
+| `theme_love`, `theme_love_unrequited` | `Noul`, both tiers, and the divergence flag |
+| `tone_comic` | `Noul` on a second axis |
+| `advisory_violence` + `_first_person` + `_depicted` | `Score`, both modifiers, and the age-band inputs |
+| `narrator_gender`, `narrator_cast_by_pronouns` | `Choice`, and a derived cast score |
+| `relational_focus_present`, `love_interest_gender` | the gate, and a gated column |
+| `sensitive_loss_of_parent` + `_centrality` | a flag that must never aggregate |
+| `lyrics_language` | `Choice` over a large option set |
+
+A column outside the active set is `None`, with a reason naming the set — **a distinct reason
+from "this input has no lyrics"**, so a lean run can never be mistaken for a null result. The
+active set is recorded in `clf_question_set` (`core@v1`, `full@v1`), so a database built leanly
+cannot be mistaken for a complete one either.
+
+**`--lyrics-estimate`** prints the call count, question count and estimated input tokens for the
+given inputs and exits without calling anything. Answers "what will this cost" before spending
+it, which is the question the flag above exists to avoid having to ask twice.
+
+**`--lyrics-max-calls N`** aborts the run when the budget is reached rather than continuing, with
+the partial results already written and a message naming what was skipped. A guard against a
+mistake — a recursive glob over a whole music folder — rather than against ordinary use.
+
+Automated tests spend nothing regardless: they use `FakeJevClient` and committed fixtures. These
+controls are for manual exploration against the real API, which is where the money goes.
 
 ## Secrets and configuration
 
@@ -548,6 +589,12 @@ reports a single composite.
 6. `--profile` reports the group's columns as structurally dead on a MIDI corpus, distinguishing
    that from a column that is dead merely on this corpus.
 7. The 213-column schema is unchanged when the group is not requested.
+8. `--lyrics-questions core` issues exactly one API call per song, and every column outside the
+   core set is `None` with a reason naming the set rather than naming absent lyrics.
+9. A `full` run after a `core` run re-sends only the questions the core run did not ask, proving
+   the cache is keyed per question.
+10. `--lyrics-estimate` makes no network call, and its predicted call count matches what a real
+    run issues.
 
 ## Deferred
 
