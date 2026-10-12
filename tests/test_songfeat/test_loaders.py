@@ -12,7 +12,7 @@ from songfeat.loaders import (
     load,
     quarters_to_seconds,
 )
-from songfeat.model import Note, TempoMark
+from songfeat.model import Note, TempoMark, Syllable
 
 ARIA = os.path.join("data", "test_data_arias", "1-I.mid")
 
@@ -328,3 +328,32 @@ def test_single_tune_abc_still_loads():
             handle.write(ABC_TUNE)
         piece = load(path)
     assert [n.midi for n in piece.notes] == [67, 69, 71, 72, 71, 69, 67, 69, 71, 72]
+
+
+# --- lyrics ----------------------------------------------------------------
+
+
+def test_loader_captures_all_verses_from_musicxml(tmp_path):
+    """music21's ``element.lyric`` returns verse 1 only, so the loader has
+    to read ``element.lyrics`` to see the rest."""
+    from music21 import note as m21_note, stream
+
+    part = stream.Part()
+    first = m21_note.Note("C4", quarterLength=1.0)
+    first.addLyric("Ky", applyRaw=True)
+    first.addLyric("Lord", applyRaw=True)       # verse 2
+    second = m21_note.Note("D4", quarterLength=1.0)
+    second.addLyric("ri", applyRaw=True)
+    second.addLyric("have", applyRaw=True)
+    part.append([first, second])
+    score = stream.Score([part])
+    path = tmp_path / "two-verses.musicxml"
+    score.write("musicxml", fp=str(path))
+
+    piece = load(str(path))
+    notes = piece.parts[0].notes
+
+    assert [s.number for s in notes[0].lyrics] == [1, 2]
+    assert [s.text for s in notes[0].lyrics] == ["Ky", "Lord"]
+    assert notes[0].lyric == "Ky", "verse-1 convenience text is unchanged"
+    assert [s.text for s in notes[1].lyrics] == ["ri", "have"]

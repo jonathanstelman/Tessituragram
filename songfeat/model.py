@@ -12,6 +12,23 @@ from typing import Any
 
 
 @dataclass(frozen=True)
+class Syllable:
+    """One verse's text on one note.
+
+    MusicXML carries one ``<lyric>`` per note per verse, so a word is
+    spread across notes and has to be reassembled. ``syllabic`` is
+    MusicXML's own marker -- "begin", "middle", "end" or "single" --
+    and is what says whether this syllable continues the previous one.
+    ``extend`` marks a melisma continuation, which carries no new text.
+    """
+
+    number: int
+    text: str
+    syllabic: str | None = None
+    extend: bool = False
+
+
+@dataclass(frozen=True)
 class Note:
     """A single sounding pitch.
 
@@ -28,6 +45,7 @@ class Note:
     voice: str | None = None
     lyric: str | None = None
     is_chord_member: bool = False
+    lyrics: tuple[Syllable, ...] = ()
 
     @property
     def offset_end(self) -> float:

@@ -12,7 +12,7 @@ import os
 from music21 import chord as m21_chord
 from music21 import converter, instrument, key, meter, stream, tempo
 
-from .model import KeyMark, MeterMark, Note, Part, Piece, TempoMark
+from .model import KeyMark, MeterMark, Note, Part, Piece, Syllable, TempoMark
 
 #: Extensions music21 can read that we advertise support for.
 SUPPORTED_EXTENSIONS: dict[str, str] = {
@@ -102,7 +102,27 @@ def _collect_notes(
             duration_seconds = (
                 quarters_to_seconds(onset + duration, tempo_map) - onset_seconds
             )
-            lyric = getattr(element, "lyric", None) or None
+            syllables = tuple(
+                Syllable(
+                    number=int(getattr(item, "number", 1) or 1),
+                    text=item.text,
+                    syllabic=getattr(item, "syllabic", None),
+                    extend=bool(getattr(item, "extend", False)),
+                )
+                for item in getattr(element, "lyrics", ())
+                if getattr(item, "text", None)
+            )
+            # Extract first verse text for backward compatibility
+            lyric = None
+            if syllables:
+                # Find the first verse (number == 1)
+                first_verse = next(
+                    (s for s in syllables if s.number == 1), None
+                )
+                lyric = first_verse.text if first_verse else None
+            if lyric is None:
+                # Fallback to music21's lyric property
+                lyric = getattr(element, "lyric", None) or None
             pitches = (
                 element.pitches
                 if isinstance(element, m21_chord.Chord)
@@ -119,6 +139,7 @@ def _collect_notes(
                         duration_seconds=duration_seconds,
                         lyric=lyric,
                         is_chord_member=len(pitches) > 1,
+                        lyrics=syllables,
                     )
                 )
         collected.sort(key=lambda n: (n.onset, n.midi))
