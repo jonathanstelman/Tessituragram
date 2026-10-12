@@ -202,3 +202,26 @@ def test_as_score_relays_lyrics():
     piece = Piece(source_path="x.mid", source_format="midi", parts=[part])
     relayed = [n.lyric for n in _as_score(part, piece).flatten().notes]
     assert relayed == ["Lor", None, "em"]
+
+
+def test_as_score_relays_all_verses():
+    """The adapter must relay all verses, not just the convenience field.
+    Multi-verse notes should have all verses joined by newlines in order."""
+    from songfeat.model import Note, Part, Piece, Syllable
+
+    notes = [
+        Note(
+            midi=60, onset=0.0, duration=1.0, part=0,
+            lyric="Ky",
+            lyrics=(
+                Syllable(number=1, text="Ky", syllabic="single", extend=False),
+                Syllable(number=2, text="Lord", syllabic="single", extend=False),
+            ),
+        ),
+        Note(midi=62, onset=1.0, duration=1.0, part=0),
+    ]
+    part = Part(index=0, notes=notes)
+    piece = Piece(source_path="x.mid", source_format="midi", parts=[part])
+    relayed = [n.lyric for n in _as_score(part, piece).flatten().notes]
+    # Both verses should be relayed, joined by newline in verse order (1, then 2)
+    assert relayed == ["Ky\nLord", None]

@@ -102,16 +102,36 @@ def _collect_notes(
             duration_seconds = (
                 quarters_to_seconds(onset + duration, tempo_map) - onset_seconds
             )
-            syllables = tuple(
-                Syllable(
-                    number=int(getattr(item, "number", 1) or 1),
-                    text=item.text,
-                    syllabic=getattr(item, "syllabic", None),
-                    extend=bool(getattr(item, "extend", False)),
-                )
-                for item in getattr(element, "lyrics", ())
-                if getattr(item, "text", None)
-            )
+            # Extract syllables, expanding composite lyrics (elisions) into components
+            syllables_list = []
+            for item in getattr(element, "lyrics", ()):
+                verse_number = int(getattr(item, "number", 1) or 1)
+                # Check if this is a composite lyric (has elisions)
+                if getattr(item, "isComposite", False):
+                    # Emit one syllable per component with component's own syllabic marker
+                    for component in getattr(item, "components", []):
+                        component_text = getattr(component, "text", None)
+                        if component_text:
+                            syllables_list.append(
+                                Syllable(
+                                    number=verse_number,
+                                    text=component_text,
+                                    syllabic=getattr(component, "syllabic", None),
+                                    extend=bool(getattr(component, "extend", False)),
+                                )
+                            )
+                else:
+                    # Non-composite lyric: single syllable
+                    if getattr(item, "text", None):
+                        syllables_list.append(
+                            Syllable(
+                                number=verse_number,
+                                text=item.text,
+                                syllabic=getattr(item, "syllabic", None),
+                                extend=bool(getattr(item, "extend", False)),
+                            )
+                        )
+            syllables = tuple(syllables_list)
             # Extract lyric for backward compatibility
             lyric = None
             if syllables:

@@ -42,7 +42,7 @@ def test_note_carries_every_verse_and_its_syllabic_marker():
             Syllable(number=2, text="Wer", syllabic="single", extend=False),
         ),
     )
-    assert note.lyric == "Er", "verse-1 convenience text must not change meaning"
+    assert note.lyric == "Er", "lyric field is lowest-numbered verse (verse 1)"
     assert len(note.lyrics) == 2
     assert note.lyrics[1].number == 2
     assert note.lyrics[0].syllabic == "begin"
