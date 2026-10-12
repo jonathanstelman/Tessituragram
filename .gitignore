@@ -8,3 +8,10 @@ results
 media
 db.sqlite3
 .DS_Store
+
+# songfeat lyric classification
+.songfeat/
+lyrics/
+# "lyrics/" above is the sidecar text directory written next to a run's
+# output file, not the source feature package below -- re-include it.
+!songfeat/features/lyrics/
