@@ -361,8 +361,12 @@ def test_loader_captures_all_verses_from_musicxml(tmp_path):
 
 def test_loader_uses_lowest_verse_when_verse_1_is_absent(tmp_path):
     """When verses are numbered starting at 2+, Note.lyric derives from the
-    lowest-numbered verse present, not from music21's multi-verse fallback."""
-    # Create a minimal MusicXML with a lyric starting at verse 2
+    lowest-numbered verse present, not from music21's multi-verse fallback.
+
+    With multiple non-verse-1 syllables, the bug would join them with "\\n",
+    so this test pins that the loader uses the minimum verse number instead.
+    """
+    # Create a minimal MusicXML with lyrics starting at verse 2 and 3
     # (manually constructed XML since music21's addLyric always creates sequential verses)
     musicxml = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!DOCTYPE score-partwise PUBLIC "-//Musicnerd//DTD MusicXML 3.1 Partwise//EN"
@@ -383,16 +387,21 @@ def test_loader_uses_lowest_verse_when_verse_1_is_absent(tmp_path):
           <syllabic>single</syllabic>
           <text>Wer</text>
         </lyric>
+        <lyric number="3">
+          <syllabic>single</syllabic>
+          <text>Der</text>
+        </lyric>
       </note>
     </measure>
   </part>
 </score-partwise>"""
 
-    path = tmp_path / "verse-2-only.musicxml"
+    path = tmp_path / "verses-2-3.musicxml"
     path.write_text(musicxml)
 
     piece = load(str(path))
     note = piece.parts[0].notes[0]
 
-    assert [s.number for s in note.lyrics] == [2]
-    assert note.lyric == "Wer", "lyric derives from lowest-numbered verse (2), not music21's fallback"
+    assert [s.number for s in note.lyrics] == [2, 3]
+    assert [s.text for s in note.lyrics] == ["Wer", "Der"]
+    assert note.lyric == "Wer", "lyric is lowest-numbered verse (2), not joined like 'Wer\\nDer'"
