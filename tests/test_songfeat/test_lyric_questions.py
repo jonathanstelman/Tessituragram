@@ -3,11 +3,12 @@ import pytest
 from songfeat.features.lyrics import questions as q
 
 #: Pinned, not a floor: 0 before any axis registered, 65 after themes
-#: (Task 5), 98 with tone (6) and advisories (27) added (Task 6), now
-#: 113 with perspective (15) added (Task 7), raised again in Task 8 as
-#: sensitive and meta register. Exists so a test that loops over "full"
-#: cannot pass by iterating zero times without anyone noticing.
-EXPECTED_FULL_QUESTIONS = 113
+#: (Task 5), 98 with tone (6) and advisories (27) added (Task 6), 113
+#: with perspective (15) added (Task 7), now 153 with sensitive (39) and
+#: the lyrics_language meta question (1) added (Task 8). Exists so a
+#: test that loops over "full" cannot pass by iterating zero times
+#: without anyone noticing.
+EXPECTED_FULL_QUESTIONS = 153
 
 
 def test_every_question_id_is_unique():
@@ -49,20 +50,17 @@ def test_every_question_declares_what_its_kind_needs():
     assert checked == EXPECTED_FULL_QUESTIONS
 
 
-@pytest.mark.xfail(reason="axes land in Tasks 5-8", strict=True)
 def test_the_core_set_is_a_subset_of_the_full_set():
     full_ids = {question.id for question in q.question_set("full")}
     assert q.CORE_IDS <= full_ids
 
 
-@pytest.mark.xfail(reason="axes land in Tasks 5-8", strict=True)
 def test_the_core_set_is_thirteen_questions_and_fits_one_call():
     core = q.question_set("core")
     assert len(core) == 13
     assert len(core) <= q.BATCH_LIMIT
 
 
-@pytest.mark.xfail(reason="axes land in Tasks 5-8", strict=True)
 def test_the_core_set_covers_every_question_kind_and_every_axis_it_claims():
     core = q.question_set("core")
     assert {question.kind for question in core} == set(q.Kind)
@@ -74,3 +72,12 @@ def test_the_core_set_covers_every_question_kind_and_every_axis_it_claims():
 def test_an_unknown_set_name_raises_rather_than_falling_back():
     with pytest.raises(ValueError, match="unknown question set"):
         q.question_set("cheap")
+
+
+def test_the_full_set_is_one_hundred_and_fifty_three_questions():
+    assert len(q.question_set("full")) == 153
+
+
+def test_the_full_set_needs_eight_batched_calls():
+    import math
+    assert math.ceil(len(q.question_set("full")) / q.BATCH_LIMIT) == 8

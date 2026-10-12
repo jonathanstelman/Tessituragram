@@ -12,6 +12,7 @@ from typing import Any
 from ...model import Part, Piece
 from ..base import feature
 from .assemble import assemble_text
+from .questions import Kind, Question, register
 
 NO_LYRICS = (
     "this part carries no lyric events; lyric features need a "
@@ -63,3 +64,21 @@ def lyrics_text(part: Part, piece: Piece) -> dict[str, Any]:
         "lyrics_text_path": sidecar_name(piece.source_path),
         "lyrics_undefined_reason": None,
     }
+
+
+#: ISO 639-1 codes for the languages this repertoire actually uses, plus
+#: escapes. "unspecified" is a real answer: a vocalise has no language.
+#: Only English is VALIDATED in this version -- see the group docstring.
+LANGUAGES = (
+    "en", "it", "de", "fr", "es", "la", "ru", "pt", "cs", "hu", "sv",
+    "nl", "other", "unspecified",
+)
+
+QUESTIONS = (
+    Question(
+        id="lyrics_language", kind=Kind.CHOICE, options=LANGUAGES,
+        text="What language is this text written in?",
+        column="lyrics_language", axis="meta",
+    ),
+)
+register(QUESTIONS)

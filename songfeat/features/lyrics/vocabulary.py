@@ -186,3 +186,28 @@ CAST_QUESTIONS: dict[str, str] = {
     "named_role": "Is this established by naming a specific character whose gender is known?",
     "biology": "Is this established by a biological or life-stage detail, such as pregnancy or boyhood?",
 }
+
+#: Subjects a particular student may need to avoid entirely, regardless
+#: of how well a song fits otherwise. This axis exists to find songs to
+#: rule OUT for one person, which is why it never aggregates: a
+#: composite would be pretending to know something about the student.
+#:
+#: The list will never be complete -- a student will arrive whose
+#: circumstance is not here. It grows by release, and the feature's
+#: description says so, so that thirteen flags are not mistaken for
+#: coverage.
+SENSITIVE: tuple[tuple[str, str], ...] = (
+    ("loss_of_parent", "Does this text concern the death or loss of a parent?"),
+    ("loss_of_child", "Does this text concern the death or loss of a child?"),
+    ("loss_of_sibling", "Does this text concern the death or loss of a brother or sister?"),
+    ("loss_of_partner", "Does this text concern the death or loss of a spouse or partner?"),
+    ("serious_illness", "Does this text concern serious or terminal illness?"),
+    ("suicide", "Does this text concern suicide?"),
+    ("self_harm", "Does this text concern deliberate self-harm?"),
+    ("infant_loss", "Does this text concern miscarriage or the death of an infant?"),
+    ("family_breakup", "Does this text concern divorce or the breaking up of a family?"),
+    ("abandonment", "Does this text concern being abandoned by a parent or caregiver?"),
+    ("war_displacement", "Does this text concern being displaced or made a refugee by war?"),
+    ("abuse", "Does this text concern domestic, physical or sexual abuse?"),
+    ("family_addiction", "Does this text concern addiction in a family member?"),
+)

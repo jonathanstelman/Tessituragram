@@ -10,3 +10,5 @@ from . import themes  # noqa: F401
 from . import tone  # noqa: F401
 from . import advisories  # noqa: F401
 from . import perspective  # noqa: F401
+from . import sensitive  # noqa: F401
+from . import age  # noqa: F401
