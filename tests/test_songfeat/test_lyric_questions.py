@@ -2,28 +2,39 @@ import pytest
 
 from songfeat.features.lyrics import questions as q
 
+#: Pinned, not a floor: zero until Tasks 5-8 register their axis
+#: questions, raised to 153 in Task 8 once every axis module has
+#: registered. Exists so a test that loops over "full" cannot pass by
+#: iterating zero times without anyone noticing.
+EXPECTED_FULL_QUESTIONS = 0
+
 
 def test_every_question_id_is_unique():
     ids = [question.id for question in q.question_set("full")]
+    assert len(ids) == EXPECTED_FULL_QUESTIONS
     assert len(ids) == len(set(ids)), "duplicate question id"
 
 
 def test_every_question_populates_exactly_one_column_and_no_column_twice():
     columns = [question.column for question in q.question_set("full")]
+    assert len(columns) == EXPECTED_FULL_QUESTIONS
     assert len(columns) == len(set(columns))
 
 
 def test_no_question_text_contains_a_format_placeholder():
     """Question text is a fixed constant: nothing from a lyric may ever
     be interpolated into it. A stray {} is how that rule gets broken."""
-    offenders = [x.id for x in q.question_set("full")
-                 if "{" in x.text or "%s" in x.text]
+    full = q.question_set("full")
+    assert len(full) == EXPECTED_FULL_QUESTIONS
+    offenders = [x.id for x in full if "{" in x.text or "%s" in x.text]
     assert offenders == []
 
 
 def test_every_question_declares_what_its_kind_needs():
     violations = []
+    checked = 0
     for question in q.question_set("full"):
+        checked += 1
         if question.kind is q.Kind.CHOICE:
             if len(question.options) < 2 or "unspecified" not in question.options:
                 violations.append(question.id)
@@ -34,6 +45,7 @@ def test_every_question_declares_what_its_kind_needs():
             if question.options or question.levels:
                 violations.append(question.id)
     assert violations == []
+    assert checked == EXPECTED_FULL_QUESTIONS
 
 
 @pytest.mark.xfail(reason="axes land in Tasks 5-8", strict=True)
