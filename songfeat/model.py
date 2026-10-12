@@ -19,7 +19,10 @@ class Syllable:
     spread across notes and has to be reassembled. ``syllabic`` is
     MusicXML's own marker -- "begin", "middle", "end" or "single" --
     and is what says whether this syllable continues the previous one.
-    ``extend`` marks a melisma continuation, which carries no new text.
+    ``extend`` is declared for the MusicXML format's sake, but music21 10.1.0
+    does not surface an extend marker, so the loader cannot set it. Melisma
+    continuations (which carry no text) are instead filtered out by the
+    empty-text check during parsing.
     """
 
     number: int

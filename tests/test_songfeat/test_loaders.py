@@ -357,3 +357,42 @@ def test_loader_captures_all_verses_from_musicxml(tmp_path):
     assert [s.text for s in notes[0].lyrics] == ["Ky", "Lord"]
     assert notes[0].lyric == "Ky", "verse-1 convenience text is unchanged"
     assert [s.text for s in notes[1].lyrics] == ["ri", "have"]
+
+
+def test_loader_uses_lowest_verse_when_verse_1_is_absent(tmp_path):
+    """When verses are numbered starting at 2+, Note.lyric derives from the
+    lowest-numbered verse present, not from music21's multi-verse fallback."""
+    # Create a minimal MusicXML with a lyric starting at verse 2
+    # (manually constructed XML since music21's addLyric always creates sequential verses)
+    musicxml = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE score-partwise PUBLIC "-//Musicnerd//DTD MusicXML 3.1 Partwise//EN"
+ "http://www.musicxml.org/partwise.dtd">
+<score-partwise version="3.1">
+  <part-list>
+    <score-part id="P1">
+      <part-name>Part 1</part-name>
+    </score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>4</duration>
+        <type>quarter</type>
+        <lyric number="2">
+          <syllabic>single</syllabic>
+          <text>Wer</text>
+        </lyric>
+      </note>
+    </measure>
+  </part>
+</score-partwise>"""
+
+    path = tmp_path / "verse-2-only.musicxml"
+    path.write_text(musicxml)
+
+    piece = load(str(path))
+    note = piece.parts[0].notes[0]
+
+    assert [s.number for s in note.lyrics] == [2]
+    assert note.lyric == "Wer", "lyric derives from lowest-numbered verse (2), not music21's fallback"

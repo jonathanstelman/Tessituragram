@@ -112,16 +112,14 @@ def _collect_notes(
                 for item in getattr(element, "lyrics", ())
                 if getattr(item, "text", None)
             )
-            # Extract first verse text for backward compatibility
+            # Extract lyric for backward compatibility
             lyric = None
             if syllables:
-                # Find the first verse (number == 1)
-                first_verse = next(
-                    (s for s in syllables if s.number == 1), None
-                )
-                lyric = first_verse.text if first_verse else None
-            if lyric is None:
-                # Fallback to music21's lyric property
+                # Find the lowest-numbered verse (usually verse 1, but may start at 2+)
+                lowest_verse = min(syllables, key=lambda s: s.number)
+                lyric = lowest_verse.text if lowest_verse else None
+            else:
+                # Fallback to music21's lyric property only when no syllables
                 lyric = getattr(element, "lyric", None) or None
             pitches = (
                 element.pitches

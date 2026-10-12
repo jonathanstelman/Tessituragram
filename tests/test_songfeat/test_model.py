@@ -52,4 +52,5 @@ def test_note_without_lyrics_has_an_empty_tuple_not_none():
     """A tuple keeps Note hashable, which frozen-dataclass equality relies on."""
     note = Note(midi=60, onset=0.0, duration=1.0, part=0)
     assert note.lyrics == ()
-    assert hash(note) is not None
+    # Verify the note is hashable and can be used in a set
+    assert len({note, note}) == 1
