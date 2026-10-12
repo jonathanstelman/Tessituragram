@@ -2,14 +2,12 @@
 
 Features take ``(part, piece)`` and nothing else -- that is the
 registry's contract -- so the configured client reaches them through
-this module rather than through an argument. ``configure()`` is called
-once by the CLI; until it is, ``classify_part`` returns a
-``Classification`` with ``NOT_CONFIGURED`` as its reason and every axis
-reports null.
-
-Answers are memoised per normalised-text hash, so the eight axis
-features that each ask for the same part's classification cost one
-classification between them.
+this module rather than through an argument. Task 11 adds a
+``configure()`` here, plus memoisation of answers per normalised-text
+hash so the eight axis features that each ask for the same part's
+classification cost one classification between them. Until then,
+``classify_part`` returns a ``Classification`` whose ``reason`` is
+``NOT_CONFIGURED`` and every axis reports null.
 """
 
 from __future__ import annotations
