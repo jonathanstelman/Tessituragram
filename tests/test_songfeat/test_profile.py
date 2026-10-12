@@ -71,13 +71,16 @@ def test_empty_input_is_safe():
 
 
 def test_weak_for_format_flags_chromaticism_on_midi():
-    # chromaticism is the only feature with best_with set (Task 12), and it
-    # excludes midi -- pin the exact field names, not just "non-empty",
-    # so a future best_with change on a different feature is caught too.
+    # chromaticism (Task 12) and lyrics_text (Task 2 of the lyrics plan)
+    # are the features with best_with set, and both exclude midi -- pin
+    # the exact field names, not just "non-empty", so a future best_with
+    # change on a different feature is caught too.
     weak = weak_for_format("midi")
     assert weak == {
         "nondiatonic_share", "chromatic_run_longest",
         "pitch_class_entropy", "n_distinct_pitch_classes",
+        "lyrics_word_count", "lyrics_verse_count", "lyrics_sha256",
+        "lyrics_text_path", "lyrics_undefined_reason",
     }
     # A feature with best_with=None (the default -- "equally valid for
     # every format") must never be flagged, on any format.
