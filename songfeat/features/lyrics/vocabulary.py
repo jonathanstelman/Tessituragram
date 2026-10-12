@@ -128,3 +128,45 @@ CAST_MECHANISMS: tuple[tuple[str, int], ...] = (
     ("named_role", 5),
     ("biology", 5),
 )
+
+#: How a text treats its subject, as distinct from what it is about.
+#: Not mutually exclusive: a wry song about unrequited love is comic and
+#: ironic and barely sincere. This axis exists because "I need a comic
+#: song for a jury" is among the most common repertoire requests, and
+#: humour is not a subject.
+TONES: tuple[tuple[str, str], ...] = (
+    ("comic", "Is this text funny, or meant to amuse?"),
+    ("ironic", "Does this text mean something other than what it literally says?"),
+    ("sincere", "Is this text sincere and direct, meaning what it says?"),
+    ("elegiac", "Is this text mournful or elegiac in its treatment?"),
+    ("playful", "Is this text playful or light in its treatment, without being a joke?"),
+    ("grand", "Is this text grand, exalted, or ceremonial in its treatment?"),
+)
+
+#: Content advisories: nine dimensions, anchored on Common Sense Media's
+#: content grid. Consumerism is dropped -- it barely occurs in this
+#: canon -- and death, self-harm and religious content are added.
+#: Religious content is a FILTER need rather than a warning: it matters
+#: to teachers in secular schools and with students of other faiths.
+#:
+#: The order is the age-band tie-break order (Task 8), documented here
+#: rather than left incidental.
+ADVISORIES: tuple[tuple[str, str], ...] = (
+    ("sex", "How much sexual content does this text contain?"),
+    ("violence", "How much violence or frightening content does this text contain?"),
+    ("self_harm", "How much self-harm or suicide does this text contain?"),
+    ("substance_use", "How much drinking, drug use, or intoxication does this text contain?"),
+    ("language", "How much profanity or coarse language does this text contain?"),
+    ("death", "How much death or mortality does this text contain?"),
+    ("positive_messages", "How strongly does this text carry a positive message or lesson?"),
+    ("role_models", "How strongly does this text present someone worth emulating?"),
+    ("religious_content", "How much explicitly religious content does this text contain?"),
+)
+
+#: The two modifier questions, asked for every dimension. The dimension
+#: label is substituted from OUR OWN constant above, never from a lyric:
+#: the fixed-question-text rule is about input, not about templating.
+ADVISORY_MODIFIERS: tuple[tuple[str, str], ...] = (
+    ("first_person", "Does the singer voice this content as themselves, in the first person?"),
+    ("depicted", "Does the text depict this content directly, rather than alluding to it?"),
+)

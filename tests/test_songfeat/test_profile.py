@@ -71,12 +71,14 @@ def test_empty_input_is_safe():
 
 
 def test_weak_for_format_flags_chromaticism_on_midi():
-    # chromaticism (Task 12), lyrics_text (Task 2 of the lyrics plan) and
-    # lyrics_themes (Task 5 of the lyrics plan) are the features with
-    # best_with set, and all three exclude midi -- pin the exact field
-    # names, not just "non-empty", so a future best_with change on a
-    # different feature is caught too.
+    # chromaticism (Task 12), lyrics_text (Task 2 of the lyrics plan),
+    # lyrics_themes (Task 5), lyrics_tone and lyrics_advisories (both
+    # Task 6) are the features with best_with set, and all exclude midi
+    # -- pin the exact field names, not just "non-empty", so a future
+    # best_with change on a different feature is caught too.
     from songfeat.features.lyrics.themes import THEME_FIELDS
+    from songfeat.features.lyrics.tone import TONE_FIELDS
+    from songfeat.features.lyrics.advisories import ADVISORY_FIELDS
 
     weak = weak_for_format("midi")
     assert weak == {
@@ -84,7 +86,7 @@ def test_weak_for_format_flags_chromaticism_on_midi():
         "pitch_class_entropy", "n_distinct_pitch_classes",
         "lyrics_word_count", "lyrics_verse_count", "lyrics_sha256",
         "lyrics_text_path", "lyrics_undefined_reason",
-    } | set(THEME_FIELDS)
+    } | set(THEME_FIELDS) | set(TONE_FIELDS) | set(ADVISORY_FIELDS)
     # A feature with best_with=None (the default -- "equally valid for
     # every format") must never be flagged, on any format.
     assert "leap_max_semitones" not in weak
