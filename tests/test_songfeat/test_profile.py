@@ -70,6 +70,72 @@ def test_empty_input_is_safe():
     assert correlated_pairs([]) == []
 
 
+def test_correlated_pairs_compares_the_rows_where_both_columns_are_known():
+    """A column with one null used to be dropped entirely. With the
+    lyrics group that is every column on every MIDI file, so the
+    profiler would under-report redundancy precisely where it is
+    likeliest."""
+    from songfeat.profile import correlated_pairs
+
+    records = [
+        {"a": 1.0, "b": 2.0, "c": None},
+        {"a": 2.0, "b": 4.0, "c": 1.0},
+        {"a": 3.0, "b": 6.0, "c": 2.0},
+        {"a": 4.0, "b": 8.0, "c": 3.0},
+    ]
+    pairs = dict(((x, y), r) for x, y, r in correlated_pairs(records, 0.99))
+    assert pairs[("a", "b")] == pytest.approx(1.0), "perfectly collinear"
+    assert pairs[("a", "c")] == pytest.approx(1.0), (
+        "also collinear over the three rows where both are known; the old "
+        "implementation dropped c for having one null"
+    )
+
+
+def test_a_column_with_too_few_known_rows_is_reported_as_unassessable():
+    """Not silently dropped: 'we could not tell' is different from
+    'not redundant'."""
+    from songfeat.profile import correlated_pairs, unassessable_columns
+
+    records = [
+        {"a": 1.0, "b": 1.0, "d": None},
+        {"a": 2.0, "b": 2.0, "d": None},
+        {"a": 3.0, "b": 3.0, "d": 7.0},
+    ]
+    assert "d" in unassessable_columns(records)
+    assert all("d" not in pair for pair in correlated_pairs(records, 0.99))
+
+
+def test_print_profile_distinguishes_unassessable_from_assessed_columns(capsys):
+    """``--profile`` must say "too few known values to assess" for a column
+    with fewer than MIN_PAIRWISE known rows, not leave it looking merely
+    uncorrelated -- and must still report a pair that does have enough rows
+    as correlated, so the two outputs stay distinguishable rather than both
+    just being silence."""
+    from songfeat.cli import print_profile
+
+    records = [
+        record(a=1.0, b=2.0, d=None),
+        record(a=2.0, b=4.0, d=None),
+        record(a=3.0, b=6.0, d=7.0),
+    ]
+    print_profile(records)
+    out = capsys.readouterr().out
+
+    before_unassessable, _, unassessable_block = out.partition(
+        "columns have too few known values to assess for redundancy:\n"
+    )
+    _, _, pairs_block = before_unassessable.partition("correlated pairs at |r| >= 0.95:\n")
+
+    # Exactly one correlated pair reported, and it is (a, b) -- the pair
+    # with all three rows known -- not "d", which has only one.
+    pair_lines = [line for line in pairs_block.splitlines() if line.startswith("  ")]
+    assert len(pair_lines) == 1
+    assert pair_lines[0].split()[:2] == ["a", "b"]
+
+    # "d" is named as unassessable, on its own line, and nothing else is.
+    assert unassessable_block.strip() == "d"
+
+
 def test_weak_for_format_flags_chromaticism_on_midi():
     # chromaticism (Task 12), lyrics_text (Task 2 of the lyrics plan),
     # lyrics_provenance (Task 11), lyrics_themes (Task 5), lyrics_tone

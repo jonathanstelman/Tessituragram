@@ -85,7 +85,12 @@ def print_profile(records) -> None:
     the input format lacks what the feature needs (design spec: availability
     is "recorded in feature metadata and surfaced by profile").
     """
-    from .profile import correlated_pairs, profile_records, weak_for_format
+    from .profile import (
+        correlated_pairs,
+        profile_records,
+        unassessable_columns,
+        weak_for_format,
+    )
 
     profiles = profile_records(records)
     dead = [p for p in profiles if p.is_constant or p.null_rate == 1.0]
@@ -117,6 +122,16 @@ def print_profile(records) -> None:
         print(f"\n{len(pairs)} correlated pairs at |r| >= 0.95:")
         for left, right, r in sorted(pairs, key=lambda p: -abs(p[2]))[:25]:
             print(f"  {left:<36}{right:<36}{r:>8.3f}")
+
+    # Distinct from "dead": a column can vary and still have too few known
+    # values to say anything about its redundancy. Left out of the pairs
+    # above rather than reported as "not correlated" -- this is where that
+    # "we could not tell" surfaces instead of vanishing.
+    unassessable = unassessable_columns([r.features for r in records])
+    if unassessable:
+        print(f"\n{len(unassessable)} columns have too few known values to assess for redundancy:")
+        for name in unassessable:
+            print(f"  {name}")
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -12,7 +12,7 @@ error columns are appended at close(), and a re-run does not deduplicate.
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, Sequence
 
 from ..record import FeatureRecord
 from .base import BaseSink
@@ -45,6 +45,7 @@ class SheetsSink(BaseSink):
         credentials_env: str = "GOOGLE_APPLICATION_CREDENTIALS",
         batch_size: int = 200,
         client: Any = None,
+        exclude: Sequence[str] = (),
     ) -> None:
         if client is None:
             try:
@@ -74,6 +75,7 @@ class SheetsSink(BaseSink):
                 ) from None
 
         self._client = client
+        self._exclude = frozenset(exclude)
         self.spreadsheet_id = spreadsheet_id
         self.worksheet_title = worksheet
         self.batch_size = batch_size
@@ -86,7 +88,10 @@ class SheetsSink(BaseSink):
         self._opened = False
 
     def open(self, schema: list[str]) -> None:
-        super().open(schema)
+        # Excluded before the leading-columns comparison below, so a sheet
+        # that was already written without provenance still validates
+        # against the narrowed schema rather than the caller's full one.
+        super().open([name for name in schema if name not in self._exclude])
         self._worksheet = self._client.open_by_key(
             self.spreadsheet_id
         ).worksheet(self.worksheet_title)
@@ -121,7 +126,8 @@ class SheetsSink(BaseSink):
         self._opened = True
 
     def write(self, record: FeatureRecord) -> None:
-        self._rows.append(record.flat())
+        row = record.flat()
+        self._rows.append({k: v for k, v in row.items() if k not in self._exclude})
 
     def close(self) -> None:
         if not self._opened:
