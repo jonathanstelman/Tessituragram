@@ -189,6 +189,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--validate-lyrics", choices=("dev", "held-out"), default=None,
+        help=(
+            "compare the lyric classifier against the committed labels for "
+            "the given split and print per-column agreement instead of "
+            "writing records; the path argument is the corpus directory. "
+            "The held-out split is meant to be run once, at the end"
+        ),
+    )
+    parser.add_argument(
         "--drop-trailing-marker",
         action="store_true",
         help=(
@@ -274,6 +283,24 @@ def main(argv: list[str] | None = None) -> int:
         if not args.paths:
             build_parser().error("--validate requires a corpus directory")
         print_validation(args.paths[0], GROUND_TRUTH_XLSX)
+        return 0
+
+    if args.validate_lyrics:
+        if not args.paths:
+            build_parser().error("--validate-lyrics requires a corpus directory")
+        from .features.lyrics.cache import DEFAULT_PATH, AnswerCache
+        from .features.lyrics.client import MISSING_KEY
+        from .features.lyrics import service
+        from .validation_lyrics import print_agreement
+
+        client = _build_jev_client(args)
+        service.configure(
+            client=client,
+            cache=AnswerCache(args.lyrics_cache or DEFAULT_PATH),
+            question_set_name=args.lyrics_questions,
+            unavailable_reason=MISSING_KEY if client is None else None,
+        )
+        print_agreement(args.paths[0], args.validate_lyrics)
         return 0
 
     if not args.paths:
