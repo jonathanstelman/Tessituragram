@@ -40,11 +40,14 @@ $0.006090).
   **not** be confirmed in the reachable docs (``api.md``,
   ``patterns/fan-out.md``, ``cookbooks/parallel_questions.md``,
   ``sdk/python/api/exceptions.md``): none of them states a maximum, and
-  none of the documented exceptions is a batch-size validation error. A
-  live probe of the cap itself was not attempted (out of scope for a
-  single minimal call; would have required a second paid, exploratory
-  request). The plan's assumption of 20 is therefore implemented as
-  given and **flagged as unverified**.
+  none of the documented exceptions is a batch-size validation error.
+  It **was** confirmed live, after fix-round review: a batch of exactly
+  20 trivial Noul questions sent in one call to this endpoint came back
+  with all 20 answered cleanly in that single call (see
+  ``test_the_real_api_accepts_a_full_batch_of_twenty``). That rules out
+  the one failure mode that matters -- a real cap *below* 20, which
+  would silently break every full run -- without claiming the real cap
+  isn't higher (which would only mean room to batch more, not a bug).
 - What was *not* anticipated by the plan, and was only found by making a
   real call (the request shape above assumed by an earlier draft of
   this module used ``kind``/``text``/``options``/``levels`` and a bare
@@ -61,6 +64,21 @@ $0.006090).
 
 ``_payload`` and ``_parse_answer`` are the only two functions that know
 the wire format.
+
+**``criteria`` and the shared Score rubric (fix round 1).** The live API
+requires a ``criteria`` field: a ``{answer: description}`` map for Noul
+and Choice, an ordered list of level descriptions for Score. For
+Noul/Choice a generic criteria map is harmless, because the question
+text already carries the judgment and the option names are
+self-describing. For Score it is not harmless: the derived age band
+tests Score outputs against absolute thresholds (``advisory_sex >= 3``,
+``advisory_violence >= 4``, ...), which only mean something if "3" is
+the same severity on every call. So every Score question defaults to
+``questions.SCORE_LEVELS``, one shared, dimension-neutral 0-5 rubric,
+rather than a per-question placeholder the model would otherwise invent
+differently each time. This is the v1 approach; ``Question.criteria`` is
+the seam for a later task to give an individual question its own
+rubric, overriding the shared default, without reshaping anything here.
 """
 
 from __future__ import annotations
@@ -69,7 +87,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, Sequence
 
-from .questions import BATCH_LIMIT, Answer, Kind, Question
+from .questions import BATCH_LIMIT, SCORE_LEVELS, Answer, Kind, Question
 
 if TYPE_CHECKING:
     import httpx
@@ -129,17 +147,28 @@ def _criteria(question: Question) -> dict[str, str] | list[str]:
     ``instructions`` -- a 400 ("Noul question must have criteria or
     instructions") is what happens without one.
 
-    ``Question`` (Tasks 1-9) carries no per-option or per-level
-    description, only the bare option names and a level count, so these
-    are generic placeholders rather than real rubric text. That is a gap
-    worth closing in the axis definitions, not here: this function's job
-    is wire shape, not classification quality.
+    A question's own ``criteria`` wins when it is set (the seam for a
+    later task's per-question rubrics). Otherwise: Noul and Choice fall
+    back to generic criteria, which is harmless because the question
+    text already carries the judgment and the option names are
+    self-describing. Score falls back to ``questions.SCORE_LEVELS``, the
+    shared dimension-neutral 0-5 rubric -- *not* a generic placeholder,
+    because the derived age band tests Score outputs against absolute
+    thresholds (e.g. ``advisory_sex >= 3``), which only mean something if
+    "3" is the same severity on every call rather than a scale the model
+    invents each time.
     """
+    if question.criteria is not None:
+        return (
+            list(question.criteria)
+            if isinstance(question.criteria, tuple)
+            else dict(question.criteria)
+        )
     if question.kind is Kind.NOUL:
         return {"true": "yes", "false": "no"}
     if question.kind is Kind.CHOICE:
         return {option: option for option in question.options}
-    return [f"level {level}" for level in range(question.levels)]
+    return list(SCORE_LEVELS[:question.levels]) if question.levels else list(SCORE_LEVELS)
 
 
 def _payload(state: str, batch: Sequence[Question]) -> dict[str, Any]:

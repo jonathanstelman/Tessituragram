@@ -16,8 +16,48 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-#: The provider endpoint's questions-per-call cap.
+#: The questions-per-call cap. **Measured, not assumed**, as of
+#: 2026-10-12: the docs at https://docs.typesafe.ai never state a
+#: maximum, so this was confirmed by sending exactly 20 trivial Noul
+#: questions in a single live call to
+#: ``https://api.typesafe.ai/v1/systemone`` and observing all 20 answer
+#: cleanly in that one call (see
+#: ``tests/test_songfeat/test_lyric_client.py::test_the_real_api_accepts_a_full_batch_of_twenty``).
+#: That confirms the cap is *at least* 20 -- it does not rule out a
+#: higher real cap, which would just mean fewer, cheaper calls if ever
+#: raised. It is this value, 20, that matters: the client batches to it,
+#: so a cap lower than 20 is the one failure mode that would silently
+#: break every full run, and that is what was checked.
 BATCH_LIMIT = 20
+
+#: The shared v1 criteria rubric for every Score question (0-5 levels).
+#:
+#: It exists so the scale means the same thing on every song and every
+#: call. The derived age band tests Score outputs against absolute
+#: thresholds (``advisory_sex >= 3``, ``advisory_violence >= 4``,
+#: ``advisory_self_harm >= 2``, ``advisory_language >= 1``), and those
+#: thresholds only mean something if "3" is the same severity on every
+#: run rather than a scale the model invents per call. Sent to the
+#: classifier as a question's ``criteria`` when the question does not
+#: carry its own (see ``Question.criteria`` below), by every Score
+#: dimension: violence, sex, death, language, and the sensitive-subject
+#: centrality scores, so the wording is deliberately dimension-neutral
+#: rather than naming any one of them.
+#:
+#: This is the v1 approach: one shared rubric rather than per-question
+#: rubric text for all 153 questions, which is real design work and not
+#: this task's to invent. ``Question.criteria`` is the seam for that --
+#: a later task can give an individual question its own rubric (its own
+#: tuple of level descriptions, or a mapping for Noul/Choice) without
+#: reshaping anything here.
+SCORE_LEVELS: tuple[str, ...] = (
+    "absent -- the subject does not appear at all",
+    "passing -- a brief or oblique reference only, easy to miss",
+    "present -- clearly there, but not a focus of the lyric",
+    "central -- a significant focus, described with some detail",
+    "strong -- explicit, sustained, or graphic",
+    "pervasive -- explicit and dominant throughout the lyric",
+)
 
 
 class Kind(StrEnum):
@@ -35,6 +75,13 @@ class Question:
     axis: str
     options: tuple[str, ...] = ()
     levels: int = 0
+    #: An individual rubric for this question, overriding the shared
+    #: default the client otherwise sends (``SCORE_LEVELS`` for Score,
+    #: generic yes/no or option-name criteria for Noul/Choice). Unset
+    #: for every question declared so far -- this is the seam for a
+    #: later task to add per-question rubric text, not something this
+    #: plan's 153 questions use yet.
+    criteria: tuple[str, ...] | dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
