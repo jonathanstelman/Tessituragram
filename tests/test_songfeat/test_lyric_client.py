@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from songfeat.features.lyrics.client import (
-    BudgetExceeded, DEFAULT_BASE_URL, DEFAULT_MODEL, FakeJevClient, HttpJevClient, estimate,
+    BudgetExceeded, FakeJevClient, HttpJevClient, estimate,
 )
 from songfeat.features.lyrics.questions import Kind, Question, SCORE_LEVELS, question_set
 
@@ -122,9 +122,15 @@ def test_the_outgoing_payload_matches_the_real_wire_format():
     client.ask("t", [NOUL, SCORE, CHOICE])
 
     request = captured[0]
-    assert str(request.url) == DEFAULT_BASE_URL
+    # Pinned as literals, not DEFAULT_BASE_URL/DEFAULT_MODEL: both were
+    # confirmed against the live API on 2026-10-12 (the base path
+    # returned 404 and the model string returned 400 before being
+    # corrected), and they are exactly the values a future edit could
+    # silently break if this test asserted against the module's own
+    # constants instead of the real wire values.
+    assert str(request.url) == "https://api.typesafe.ai/v1/systemone"
     body = json.loads(request.content)
-    assert body["model"] == DEFAULT_MODEL
+    assert body["model"] == "jev-latest"
     assert body["questions"]["theme_love"] == {
         "type": "noul",
         "instructions": NOUL.text,
@@ -185,6 +191,32 @@ def test_a_questions_own_criteria_overrides_the_shared_default():
         "true": "clearly and explicitly romantic",
         "false": "no romance at all",
     }
+
+
+def test_a_score_questions_tuple_criteria_overrides_the_shared_rubric():
+    """The tuple branch of ``resolved_criteria`` -- the one a per-question
+    Score rubric actually uses, unlike the dict branch exercised above
+    by a Noul question. A sibling Score question with no override must
+    still get ``SCORE_LEVELS``, not the custom tuple."""
+    custom_levels = ("none", "mild", "moderate", "severe", "extreme", "graphic")
+    custom = Question(id="advisory_violence", kind=Kind.SCORE, levels=6,
+                       text="How much violence?", column="advisory_violence",
+                       axis="advisories", criteria=custom_levels)
+    plain = SCORE  # advisory_sex, no override: must still send SCORE_LEVELS
+    captured = []
+
+    def handler(request):
+        captured.append(json.loads(request.content))
+        body = json.loads(request.content)
+        return httpx.Response(200, json={"answers": {
+            key: {"score": 0.0} for key in body["questions"]
+        }})
+
+    client = HttpJevClient("k", transport=_transport(handler))
+    client.ask("t", [custom, plain])
+    sent = captured[0]["questions"]
+    assert sent["advisory_violence"]["criteria"] == list(custom_levels)
+    assert sent["advisory_sex"]["criteria"] == list(SCORE_LEVELS)
 
 
 def test_a_missing_answer_becomes_an_errored_answer_not_a_zero():

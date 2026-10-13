@@ -147,6 +147,38 @@ def test_changed_criteria_invalidates_only_that_question(tmp_path):
     assert cache.get("abc", "typesafe/jev-1.13", other) is not None
 
 
+def test_put_many_batches_several_answers_under_one_commit(tmp_path):
+    """put_many must store a whole batch's good answers -- retrievable
+    individually by get() under the shared classified_at -- and must not
+    cache an errored answer in that same batch, same as put()."""
+    other = Question(id="theme_nature", kind=Kind.NOUL, text="Is this about nature?",
+                     column="theme_nature", axis="themes")
+    failed = Question(id="tone_comic", kind=Kind.NOUL, text="Is this comic?",
+                      column="tone_comic", axis="tone")
+    cache = AnswerCache(str(tmp_path / "c.sqlite"))
+    pairs = [
+        (QUESTION, Answer("theme_love", probability=0.91, confidence=0.8)),
+        (other, Answer("theme_nature", probability=0.2, confidence=0.6)),
+        (failed, Answer("tone_comic", error="timeout")),
+    ]
+    cache.put_many("abc", "typesafe/jev-1.13", pairs, "2026-10-12")
+
+    love_answer, love_when = cache.get("abc", "typesafe/jev-1.13", QUESTION)
+    assert love_answer.probability == 0.91
+    assert love_answer.confidence == 0.8
+    assert love_when == "2026-10-12"
+
+    nature_answer, nature_when = cache.get("abc", "typesafe/jev-1.13", other)
+    assert nature_answer.probability == 0.2
+    assert nature_answer.confidence == 0.6
+    assert nature_when == "2026-10-12"
+
+    assert cache.get("abc", "typesafe/jev-1.13", failed) is None
+
+    stored = cache._connection.execute("SELECT COUNT(*) FROM answers").fetchone()[0]
+    assert stored == 2, "only the two non-errored answers are stored"
+
+
 def test_a_core_run_then_a_full_run_reuses_the_cores_answers(tmp_path):
     """The key is per question, not per set: a lean 'core' run's answers
     must be reusable, unchanged, by a later 'full' run that asks more
