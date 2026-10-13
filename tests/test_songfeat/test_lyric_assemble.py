@@ -109,6 +109,22 @@ def test_a_part_with_no_notes_assembles_to_none():
     assert assemble_text(Part(index=0, name="Voice", notes=[])) is None
 
 
+def test_a_whitespace_only_syllable_contributes_no_word():
+    """Fix round 1, Finding 1: a space passes the ``not syllable.text``
+    guard -- it is a non-empty string -- so it must not be counted as a
+    word. The syllable still marks that a verse was present in the
+    source, so the result is a real (if blank) ``LyricText``, not
+    ``None`` -- distinguishing "lyrics present but empty after
+    reassembly" from "no lyric events at all" is the service layer's
+    job, and it can only make that distinction if this function tells
+    the truth about what it found."""
+    part = built((60, (1, " ", "single")))
+    result = assemble_text(part)
+    assert result is not None, "a lyric event, even a blank one, is not absence"
+    assert result.word_count == 0
+    assert result.text == ""
+
+
 def test_normalisation_is_pinned_because_the_cache_key_depends_on_it():
     raw = "Café  \r\nnext line   \r\n\r\n"
     assert normalise(raw) == "Café\nnext line\n"

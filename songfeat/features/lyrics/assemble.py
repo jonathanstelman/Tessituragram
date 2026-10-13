@@ -72,7 +72,14 @@ def assemble_text(part: Part) -> LyricText | None:
     text = normalise("\n".join(lines))
     return LyricText(
         text=text,
-        word_count=sum(len(verses[number]) for number in verses),
+        # A syllable of pure whitespace (e.g. a stray space character)
+        # survives the ``not syllable.text`` guard above -- it is a
+        # non-empty string -- so it reaches ``verses`` and must not be
+        # counted as a word. Fix round 1: this was silently reporting
+        # word_count=1 for a part whose only "lyric" was blank.
+        word_count=sum(
+            1 for words in verses.values() for word in words if word.strip()
+        ),
         verse_count=len(verses),
         sha256=text_sha256(text),
     )

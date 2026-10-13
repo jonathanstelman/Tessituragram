@@ -300,22 +300,16 @@ def test_without_a_key_the_lyrics_group_says_so_and_the_run_still_succeeds(
     tmp_path, monkeypatch, capsys
 ):
     """A missing optional key is not an error: the run still succeeds and
-    the reason mentions JEV_KEY so a user knows what to set.
-
-    The brief this test was transcribed from pinned the literal substring
-    "no JEV_KEY" (``client.MISSING_KEY``'s wording). That reason can only
-    ever reach ``lyrics_classified_undefined_reason`` through
-    ``service.classify_part``, and the baseline (already-passing, from an
-    earlier task) ``test_unconfigured_reports_the_reason_on_every_axis``
-    in test_lyric_service.py pins that same code path -- client is
-    ``None`` -- to ``service.NOT_CONFIGURED``'s wording instead, which
-    contains "JEV_KEY" but not "no JEV_KEY". Task 12's scope is cli.py and
-    pipeline.py only, so the fix here is to this test's assertion, not to
-    service.py: checking for "JEV_KEY" (present in NOT_CONFIGURED too)
-    keeps the test's real intent -- the reason names the env var -- without
-    weakening the baseline test's pinned text.
+    the reason is ``client.MISSING_KEY`` -- distinct from
+    ``service.NOT_CONFIGURED``, which both mention "JEV_KEY" but mean
+    different things ("you asked for this group but have no key" versus
+    "nobody asked for this group"). cli.py now tells ``service.configure``
+    which one applies (fix round 1), so the stronger, exact check is
+    restored here rather than the earlier substring-only version.
     """
     from songfeat import cli
+    from songfeat.features.lyrics import service
+    from songfeat.features.lyrics.client import MISSING_KEY
 
     monkeypatch.delenv("JEV_KEY", raising=False)
     score = _musicxml_with_lyrics(tmp_path, ["love"])
@@ -323,4 +317,5 @@ def test_without_a_key_the_lyrics_group_says_so_and_the_run_still_succeeds(
     code = cli.main([str(score), "--groups", "lyrics", "-o", str(out)])
 
     assert code == 0, "a missing optional key is not a failed run"
-    assert "JEV_KEY" in out.read_text(encoding="utf-8")
+    assert MISSING_KEY in out.read_text(encoding="utf-8")
+    service.reset()

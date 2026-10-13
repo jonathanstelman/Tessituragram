@@ -292,12 +292,18 @@ def main(argv: list[str] | None = None) -> int:
     lyrics_active = groups_filter is not None and "lyrics" in groups_filter
     if lyrics_active:
         from .features.lyrics.cache import DEFAULT_PATH, AnswerCache
+        from .features.lyrics.client import MISSING_KEY
         from .features.lyrics import service
 
+        client = _build_jev_client(args)
         service.configure(
-            client=_build_jev_client(args),
+            client=client,
             cache=AnswerCache(DEFAULT_PATH),
             question_set_name=args.lyrics_questions,
+            # The group WAS requested; a missing key is a different
+            # fact than "nobody asked for this group", so it gets its
+            # own reason rather than falling back to NOT_CONFIGURED.
+            unavailable_reason=MISSING_KEY if client is None else None,
         )
 
     sidecar_dir = None

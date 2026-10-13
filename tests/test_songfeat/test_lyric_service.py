@@ -3,7 +3,7 @@ import pytest
 from songfeat.features import base
 from songfeat.features.lyrics import service
 from songfeat.features.lyrics.cache import AnswerCache
-from songfeat.features.lyrics.client import FakeJevClient
+from songfeat.features.lyrics.client import FakeJevClient, MISSING_KEY
 from songfeat.features.lyrics.questions import Answer, question_set
 from songfeat.model import Note, Part, Piece, Syllable
 
@@ -182,6 +182,73 @@ def test_a_failed_batch_nulls_only_its_own_columns(tmp_path):
     out = base.extract_part(part, _piece(part), groups_filter=["lyrics"])
     assert out["theme_love"] == 0.93
     assert out["narrator_gender"] is None
+
+
+def test_lyrics_present_but_empty_after_reassembly_names_the_count(tmp_path):
+    """Fix round 1, Finding 1 (CRITICAL): a whitespace-only syllable
+    passes assemble_text's own "no lyrics at all" check -- a space is a
+    non-empty string -- so without this check the classifier would be
+    called with an empty state and report confident values for a song
+    with nothing in it."""
+    service.configure(
+        client=FakeJevClient(_scripted(theme_love={"probability": 0.9})),
+        cache=AnswerCache(str(tmp_path / "c.sqlite")),
+    )
+    part = _part(" ")
+    out = base.extract_part(part, _piece(part), groups_filter=["lyrics"])
+    assert out["theme_love"] is None
+    reason = out["lyrics_classified_undefined_reason"]
+    assert reason is not None
+    assert "0 word(s)" in reason
+    assert reason != service.NO_LYRICS, (
+        "distinct from 'no lyric events in the source': a lyric event "
+        "was present, it just reassembled to nothing"
+    )
+
+
+def test_an_unavailable_reason_overrides_the_generic_not_configured_message(tmp_path):
+    """Fix round 1, Finding 2: the CLI knows the difference between "no
+    JEV_KEY" and "nobody requested this group"; the service must report
+    whichever one the caller actually hands it."""
+    service.configure(client=None, unavailable_reason=MISSING_KEY)
+    part = _part("love")
+    out = base.extract_part(part, _piece(part), groups_filter=["lyrics"])
+    assert out["lyrics_classified_undefined_reason"] == MISSING_KEY
+
+
+def test_without_an_unavailable_reason_the_generic_message_still_applies():
+    """The default run, where the group was never requested at all,
+    keeps reporting NOT_CONFIGURED -- that distinction is the point of
+    Finding 2's fix."""
+    service.reset()
+    part = _part("love")
+    out = base.extract_part(part, _piece(part), groups_filter=["lyrics"])
+    assert out["lyrics_classified_undefined_reason"] == service.NOT_CONFIGURED
+
+
+def test_classified_at_comes_from_the_cache_entry_not_the_run(tmp_path):
+    """Fix round 1, Finding 5: a cache hit must report when the song was
+    actually classified, never today's date. Seeds a cache entry dated
+    plainly not-today and pins that exact string on the way out -- every
+    other test in this file populates and reads the cache on the same
+    day, which would pass even if ``classified_at`` came from the run's
+    own clock."""
+    from songfeat.features.lyrics.assemble import assemble_text
+
+    cache = AnswerCache(str(tmp_path / "c.sqlite"))
+    part = _part("love")
+    assembled = assemble_text(part)
+    question = next(q for q in question_set("core") if q.id == "theme_love")
+    cache.put(assembled.sha256, "fake/jev-1", question,
+              Answer("theme_love", probability=0.42), "2020-01-01")
+
+    service.configure(
+        client=FakeJevClient(_scripted(theme_love={"probability": 0.99})),
+        cache=cache, question_set_name="core",
+    )
+    out = base.extract_part(part, _piece(part), groups_filter=["lyrics"])
+    assert out["theme_love"] == 0.42, "the cached value, not the fresh one"
+    assert out["clf_classified_at"] == "2020-01-01"
 
 
 def test_the_group_has_one_hundred_and_seventy_eight_columns():

@@ -98,9 +98,12 @@ PROVENANCE_FIELDS = (
         "``core@v1`` run from a complete ``full@v1`` one, so a partly "
         "classified database cannot be mistaken for a finished one. "
         "``lyrics_classified_undefined_reason`` carries the one reason the "
-        "whole classified group is null: no key, no lyrics, text too long, "
-        "or a failed call. A sink may decline to write these columns, but "
-        "the record always has them."
+        "whole classified group is null: no key, no lyrics, lyrics that "
+        "reassembled to nothing, or text too long for the model's context "
+        "window. A single failed question or batch does NOT null this "
+        "group -- that failure stays on its own column via that answer's "
+        "error, and every other column keeps its value. A sink may "
+        "decline to write these columns, but the record always has them."
     ),
     fields=PROVENANCE_FIELDS,
     best_with=("musicxml",),

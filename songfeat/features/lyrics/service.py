@@ -19,13 +19,14 @@ from dataclasses import dataclass, field
 from ...model import Part, Piece
 from .assemble import assemble_text
 from .cache import AnswerCache
-from .client import MISSING_KEY  # noqa: F401  (re-exported for the CLI)
+from .client import CHARS_PER_TOKEN, MISSING_KEY  # noqa: F401  (MISSING_KEY re-exported for the CLI)
 from .questions import Answer, Kind, Question, SET_VERSIONS, question_set
 
 #: The model's context window, in tokens. State longer than this is
-#: refused rather than truncated.
+#: refused rather than truncated. Shares ``client.CHARS_PER_TOKEN`` --
+#: not a private copy of the same number -- so this threshold can never
+#: silently disagree with what ``--lyrics-estimate`` predicts.
 MAX_STATE_TOKENS = 64000
-_CHARS_PER_TOKEN = 4
 
 NOT_CONFIGURED = (
     "no classifier is configured; set JEV_KEY and request the 'lyrics' "
@@ -34,6 +35,11 @@ NOT_CONFIGURED = (
 NO_LYRICS = (
     "this part carries no lyric events; lyric features need a "
     "lyric-bearing format such as MusicXML"
+)
+EMPTY_AFTER_REASSEMBLY = (
+    "this part's lyrics reassembled to {word_count} word(s) across "
+    "{verse_count} verse(s) of nothing but blank text; there is no song "
+    "here to classify"
 )
 TEXT_TOO_LONG = (
     "the lyric text exceeds the model's context window, so it was "
@@ -60,18 +66,30 @@ class Classification:
 _client = None
 _cache: AnswerCache | None = None
 _set_name = "full"
+_unavailable_reason: str | None = None
 _memo: dict[str, Classification] = {}
 
 
 def configure(client=None, cache: AnswerCache | None = None,
-              question_set_name: str = "full") -> None:
-    global _client, _cache, _set_name
+              question_set_name: str = "full",
+              unavailable_reason: str | None = None) -> None:
+    """Point the service at a client, or record why there isn't one.
+
+    ``unavailable_reason`` is for the caller that already knows *why*
+    ``client`` is ``None`` -- e.g. the CLI, which can tell "no JEV_KEY"
+    (``client.MISSING_KEY``) apart from "the group was never requested".
+    Without it, ``classify_part`` falls back to the generic
+    ``NOT_CONFIGURED``, which is the right reason only for the second
+    case.
+    """
+    global _client, _cache, _set_name, _unavailable_reason
     _client, _cache, _set_name = client, cache, question_set_name
+    _unavailable_reason = unavailable_reason
     _memo.clear()
 
 
 def reset() -> None:
-    configure(None, None, "full")
+    configure(None, None, "full", None)
 
 
 def is_configured() -> bool:
@@ -100,12 +118,23 @@ def _validate(question: Question, answer: Answer) -> Answer:
 def classify_part(part: Part, piece: Piece) -> Classification:
     """This part's answers, or a Classification carrying only a reason."""
     if _client is None:
-        return Classification(reason=NOT_CONFIGURED)
+        return Classification(reason=_unavailable_reason or NOT_CONFIGURED)
 
     assembled = assemble_text(part)
     if assembled is None:
         return Classification(reason=NO_LYRICS)
-    if len(assembled.text) // _CHARS_PER_TOKEN > MAX_STATE_TOKENS:
+    if not assembled.text:
+        # A syllable of pure whitespace survives assemble_text's own
+        # "no lyrics at all" check -- it is a non-empty string -- so it
+        # reaches here as a real, but blank, LyricText. Distinct from
+        # NO_LYRICS (no lyric *events* were ever found) and from a
+        # column simply outside the active question set: here lyrics
+        # were present in the source and reassembly produced nothing to
+        # send to the classifier.
+        return Classification(reason=EMPTY_AFTER_REASSEMBLY.format(
+            word_count=assembled.word_count, verse_count=assembled.verse_count,
+        ))
+    if len(assembled.text) // CHARS_PER_TOKEN > MAX_STATE_TOKENS:
         return Classification(reason=TEXT_TOO_LONG)
 
     if assembled.sha256 in _memo:
