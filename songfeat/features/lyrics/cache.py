@@ -1,9 +1,20 @@
 """A per-question answer cache, so a run costs money once.
 
-Keyed on (text hash, model, question id, question text hash) -- per
-QUESTION, never per question set. That is what makes the lean question
-set free: a core run's answers are reusable by a later full run, and
-rewording one question costs one column rather than a whole song.
+Keyed on (text hash, model, question id, question fingerprint hash) --
+per QUESTION, never per question set. That is what makes the lean
+question set free: a core run's answers are reusable by a later full
+run, and rewording one question -- or changing the criteria the client
+actually sends for it -- costs one column rather than a whole song.
+
+The fingerprint (``questions.fingerprint``) covers everything that
+determines a question's answer: its text, kind, options/levels, and its
+*resolved* criteria -- not just ``question.criteria``, which is usually
+unset and falls back to a shared default (``questions.SCORE_LEVELS``
+for Score) that can itself change. Hashing only the question text would
+miss that: rewording the shared Score rubric, or giving one question a
+``criteria`` override, changes what was actually asked without
+changing ``question.text``, and a stale cache would then serve an
+answer computed against a scale that no longer exists.
 
 The cache, not the model, is what makes re-runs reproducible: Jev's
 probabilities are not guaranteed bit-identical between calls. A
@@ -23,7 +34,7 @@ import os
 import sqlite3
 
 from .assemble import text_sha256
-from .questions import Answer, Question
+from .questions import Answer, Question, fingerprint
 
 SCHEMA_VERSION = 1
 DEFAULT_PATH = os.path.join(".songfeat", "jev-cache.sqlite")
@@ -43,9 +54,12 @@ CREATE TABLE IF NOT EXISTS answers (
 
 
 def question_hash(question: Question) -> str:
-    """The question text's hash -- reuses the lyric text hasher, since
-    both are "sha256 of this exact string" and must agree on encoding."""
-    return text_sha256(question.text)
+    """The hash of this question's full fingerprint -- its text, kind,
+    options/levels, and resolved criteria (``questions.fingerprint``) --
+    not just its text. Reuses the lyric text hasher for the actual
+    hashing, since both are "sha256 of this exact string" and must
+    agree on encoding and normalisation."""
+    return text_sha256(fingerprint(question))
 
 
 class AnswerCache:
@@ -55,9 +69,10 @@ class AnswerCache:
     non-sqlite file, another process holding the write lock, or a
     stored schema version that does not match this code's -- degrades
     to running without a cache rather than raising. A version mismatch
-    discards the old file outright: an answer recorded under a
-    different table shape might mean something else entirely, so it is
-    never partially trusted.
+    renames the old file aside (to ``<path>.v{old version}.bak``) and
+    starts a fresh one at the current schema: an answer recorded under
+    a different table shape might mean something else entirely, so it
+    is never read back, only kept out of the way.
     """
 
     def __init__(self, path: str = DEFAULT_PATH) -> None:
@@ -140,9 +155,35 @@ class AnswerCache:
 
     def put_many(self, text_hash, model, pairs, classified_at) -> None:
         """Store several (question, answer) pairs under one classification
-        timestamp, e.g. the results of one batched call to the classifier."""
-        for question, answer in pairs:
-            self.put(text_hash, model, question, answer, classified_at)
+        timestamp, e.g. the results of one batched call to the classifier,
+        in a single transaction.
+
+        A corpus run reusing a core cache can skip ~140 of a full set's
+        153 questions, so a batch here is routinely dozens of rows; at
+        well under a cent per song, one commit for the whole batch costs
+        nothing a crash would make back by committing per row instead --
+        this is a single ``executemany`` and one ``commit``, not a loop
+        over ``put``. Errored answers are filtered out first, same as
+        ``put``: a timeout is not a judgment about the song.
+        """
+        if self._connection is None:
+            return
+        rows = [
+            (text_hash, model, question.id, question_hash(question),
+             json.dumps(answer.__dict__), classified_at)
+            for question, answer in pairs
+            if answer.error is None
+        ]
+        if not rows:
+            return
+        try:
+            self._connection.executemany(
+                "INSERT OR REPLACE INTO answers VALUES (?, ?, ?, ?, ?, ?)",
+                rows,
+            )
+            self._connection.commit()
+        except sqlite3.Error:
+            return
 
     def close(self) -> None:
         if self._connection is not None:

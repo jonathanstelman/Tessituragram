@@ -5,8 +5,6 @@ so that a change in the joining rules fails loudly instead of agreeing
 with whatever the code now does.
 """
 
-import pytest
-
 from songfeat.features.lyrics.assemble import (
     LyricText, assemble_text, normalise, text_sha256,
 )

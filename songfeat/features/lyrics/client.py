@@ -87,7 +87,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, Sequence
 
-from .questions import BATCH_LIMIT, SCORE_LEVELS, Answer, Kind, Question
+from .questions import BATCH_LIMIT, Answer, Kind, Question, resolved_criteria
 
 if TYPE_CHECKING:
     import httpx
@@ -142,42 +142,16 @@ def estimate(questions: Sequence[Question], state: str) -> Estimate:
     )
 
 
-def _criteria(question: Question) -> dict[str, str] | list[str]:
-    """The disambiguating description(s) the live API requires alongside
-    ``instructions`` -- a 400 ("Noul question must have criteria or
-    instructions") is what happens without one.
-
-    A question's own ``criteria`` wins when it is set (the seam for a
-    later task's per-question rubrics). Otherwise: Noul and Choice fall
-    back to generic criteria, which is harmless because the question
-    text already carries the judgment and the option names are
-    self-describing. Score falls back to ``questions.SCORE_LEVELS``, the
-    shared dimension-neutral 0-5 rubric -- *not* a generic placeholder,
-    because the derived age band tests Score outputs against absolute
-    thresholds (e.g. ``advisory_sex >= 3``), which only mean something if
-    "3" is the same severity on every call rather than a scale the model
-    invents each time.
-    """
-    if question.criteria is not None:
-        return (
-            list(question.criteria)
-            if isinstance(question.criteria, tuple)
-            else dict(question.criteria)
-        )
-    if question.kind is Kind.NOUL:
-        return {"true": "yes", "false": "no"}
-    if question.kind is Kind.CHOICE:
-        return {option: option for option in question.options}
-    return list(SCORE_LEVELS[:question.levels]) if question.levels else list(SCORE_LEVELS)
-
-
 def _payload(state: str, batch: Sequence[Question]) -> dict[str, Any]:
     questions: dict[str, Any] = {}
     for question in batch:
         questions[question.id] = {
             "type": str(question.kind),
             "instructions": question.text,
-            "criteria": _criteria(question),
+            # Resolved in questions.py, not here, so the cache (which
+            # hashes this same resolution into its key) and the client
+            # can never disagree about what a question actually asked.
+            "criteria": resolved_criteria(question),
         }
     return {"state": state, "questions": questions}
 

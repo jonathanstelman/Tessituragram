@@ -13,6 +13,7 @@ one.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -94,6 +95,67 @@ class Answer:
     score: float | None = None
     confidence: float | None = None
     error: str | None = None
+
+
+def resolved_criteria(question: Question) -> dict[str, str] | list[str]:
+    """The disambiguating description(s) the live API requires alongside
+    ``instructions`` -- a 400 ("Noul question must have criteria or
+    instructions") is what happens without one.
+
+    A question's own ``criteria`` wins when it is set (the seam for a
+    later task's per-question rubrics). Otherwise: Noul and Choice fall
+    back to generic criteria, which is harmless because the question
+    text already carries the judgment and the option names are
+    self-describing. Score falls back to ``SCORE_LEVELS``, the shared
+    dimension-neutral 0-5 rubric -- *not* a generic placeholder,
+    because the derived age band tests Score outputs against absolute
+    thresholds (e.g. ``advisory_sex >= 3``), which only mean something
+    if "3" is the same severity on every call rather than a scale the
+    model invents each time.
+
+    This is the single resolution path both the client (what gets sent)
+    and the cache (what gets hashed into the key) call, so the two can
+    never disagree about what a question actually asked.
+    """
+    if question.criteria is not None:
+        return (
+            list(question.criteria)
+            if isinstance(question.criteria, tuple)
+            else dict(question.criteria)
+        )
+    if question.kind is Kind.NOUL:
+        return {"true": "yes", "false": "no"}
+    if question.kind is Kind.CHOICE:
+        return {option: option for option in question.options}
+    return list(SCORE_LEVELS[:question.levels]) if question.levels else list(SCORE_LEVELS)
+
+
+def fingerprint(question: Question) -> str:
+    """A canonical, stable serialisation of everything that determines
+    this question's answer: its wording, its kind, its option/level
+    shape, and the *resolved* criteria the client will actually send
+    (not just ``question.criteria``, which may be unset and fall back to
+    a shared default that can itself change).
+
+    Used as the cache key's question component. Rewording
+    ``SCORE_LEVELS``, or setting a per-question ``criteria`` override,
+    changes this fingerprint for every question it affects and no
+    other -- the same one-column-at-a-time invalidation the question
+    text's hash already gives, extended to cover criteria too.
+
+    ``json.dumps(..., sort_keys=True)`` keeps the result independent of
+    dict insertion order, so the fingerprint -- and the hash built from
+    it -- cannot depend on the platform's or the caller's iteration
+    order.
+    """
+    payload = {
+        "text": question.text,
+        "kind": str(question.kind),
+        "options": list(question.options),
+        "levels": question.levels,
+        "criteria": resolved_criteria(question),
+    }
+    return json.dumps(payload, sort_keys=True)
 
 
 SET_VERSIONS = {"core": "core@v1", "full": "full@v1"}

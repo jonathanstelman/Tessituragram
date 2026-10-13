@@ -1,5 +1,3 @@
-import pytest
-
 from songfeat.features.lyrics import advisories
 from songfeat.features.lyrics.questions import Answer, Kind
 

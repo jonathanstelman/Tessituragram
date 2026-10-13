@@ -1,7 +1,5 @@
 import sqlite3
 
-import pytest
-
 from songfeat.features.lyrics.cache import AnswerCache, SCHEMA_VERSION
 from songfeat.features.lyrics.questions import Answer, Kind, Question
 
@@ -118,6 +116,35 @@ def test_a_zero_probability_round_trips_as_zero_not_none(tmp_path):
     assert answer.probability is not None
     assert answer.confidence == 0.0
     assert answer.confidence is not None
+
+
+def test_changed_criteria_invalidates_only_that_question(tmp_path):
+    """Fix round 1, finding 1: the key must cover the resolved criteria
+    too, not just question.text. A Score question's criteria normally
+    come from the shared SCORE_LEVELS default, which a question-level
+    ``criteria`` override replaces -- this is the same wording-change
+    hazard as the reworded-text test, but for the part of a question
+    the model sees that text.hash alone does not cover."""
+    score_question = Question(id="advisory_violence", kind=Kind.SCORE, levels=6,
+                              text="How much violence?", column="advisory_violence",
+                              axis="advisories")
+    other = Question(id="theme_nature", kind=Kind.NOUL, text="Is this about nature?",
+                     column="theme_nature", axis="themes")
+    cache = AnswerCache(str(tmp_path / "c.sqlite"))
+    cache.put("abc", "typesafe/jev-1.13", score_question,
+              Answer("advisory_violence", score=2.0), "2026-10-12")
+    cache.put("abc", "typesafe/jev-1.13", other,
+              Answer("theme_nature", probability=0.1), "2026-10-12")
+
+    # Same id, same kind, same text -- but a per-question criteria
+    # override now replaces the shared SCORE_LEVELS rubric. The answer
+    # above was computed against a scale this question no longer uses.
+    rescaled = Question(id="advisory_violence", kind=Kind.SCORE, levels=6,
+                        text="How much violence?", column="advisory_violence",
+                        axis="advisories",
+                        criteria=("none", "mild", "moderate", "severe", "extreme", "graphic"))
+    assert cache.get("abc", "typesafe/jev-1.13", rescaled) is None
+    assert cache.get("abc", "typesafe/jev-1.13", other) is not None
 
 
 def test_a_core_run_then_a_full_run_reuses_the_cores_answers(tmp_path):
