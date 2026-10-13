@@ -49,18 +49,43 @@ FIRES = 0.5
 #: differs from the column name the axis actually declared (themes.py /
 #: vocabulary.py), even though both describe the same child concept.
 #: Keyed by (family, the label's own suffix) -> the real child slug.
+#:
+#: WHY THIS EXISTS AT ALL: the corpus (``songs.py`` / ``labels.json``)
+#: was frozen before any question wording existed -- deliberately, so
+#: that validating against it means something (see the module
+#: docstring). That means the corpus author and the vocabulary author
+#: (``vocabulary.py``) each independently picked one word out of the
+#: same compound child name in the spec -- "devotional & prayer"
+#: becomes ``religion_devotional`` on one side and ``religion_prayer``
+#: on the other; "eating & drinking" becomes ``activities_eating`` and
+#: ``activities_feasting``. Neither side is wrong and there is nothing
+#: to guess at: this is the frozen-corpus design working exactly as
+#: intended, not a defect in either vocabulary, so every pair here is
+#: an alias of one concept, never a judgment call about which concept
+#: a label "really" meant.
 _THEME_LABEL_ALIASES: dict[tuple[str, str], str] = {
     ("religion", "liturgical"): "liturgy",
+    ("religion", "devotional"): "prayer",
     ("social", "class_labour"): "class",
     ("social", "war_conflict"): "war",
     ("mythology", "folk_tradition"): "folk",
+    ("activities", "eating"): "feasting",
 }
 
-#: Frozen label keys with no column counterpart at all -- not a
-#: different spelling of an existing child, but a concept the axis
-#: vocabulary never declared. Populated the first time `_theme_columns`
-#: sees one, purely so a report can list them; nothing here treats an
-#: empty set as success or a nonempty one as failure.
+#: Frozen label keys with no column counterpart at all, after aliasing
+#: -- not a different spelling of a known child, but a concept the
+#: axis vocabulary never declared under any spelling. Populated the
+#: first time `_theme_columns` sees one.
+#:
+#: MUST BE EMPTY for the frozen corpus (pinned by
+#: ``test_every_frozen_theme_label_key_maps_onto_a_column``). This is
+#: not a diagnostic a reader can shrug off: a label silently dropped
+#: from the comparison still counts toward nothing in either
+#: ``agreed`` or ``of``, which inflates how much of the vocabulary
+#: looks validated. ``print_agreement`` reports a non-empty set
+#: prominently rather than leaving it to this module constant, so a
+#: label key added by a future release that nobody mapped fails loudly
+#: instead of quietly vanishing from the denominator.
 UNMAPPABLE_LABEL_KEYS: set[str] = set()
 
 
@@ -122,10 +147,13 @@ def _theme_columns(themes: dict[str, Any]) -> dict[str, Any]:
     every child the vocabulary declares gets an explicit False default
     first; only then are the label's own True entries applied on top.
     A handful of label keys spell a child differently from the column
-    the axis declared (``_THEME_LABEL_ALIASES``); anything that still
-    doesn't match a real child is recorded in
-    ``UNMAPPABLE_LABEL_KEYS`` and left out of the comparison rather than
-    guessed at.
+    the axis declared (``_THEME_LABEL_ALIASES``, each pair the same
+    frozen-corpus-vs-vocabulary spelling split, never a different
+    concept); anything that still doesn't match a real child after
+    aliasing is recorded in ``UNMAPPABLE_LABEL_KEYS`` -- which must stay
+    empty for the frozen corpus -- and left out of this song's
+    comparison, which ``print_agreement`` then surfaces prominently
+    rather than letting it pass unnoticed.
     """
     out: dict[str, Any] = {}
     for family, (_text, children) in THEMES.items():
@@ -309,10 +337,28 @@ def print_agreement(corpus_dir: str, split: str) -> None:
         print("NOTE: cast-agreement is Italian, the only non-English song; "
               "its figures are not validation of the (English-only) spec "
               "and must be read with that caveat.")
-    for result in compare_corpus(corpus_dir, split):
+
+    results = compare_corpus(corpus_dir, split)
+
+    if UNMAPPABLE_LABEL_KEYS:
+        # Loud and first, not a footnote: a label key excluded from
+        # every comparison below inflates how much of the vocabulary
+        # the table appears to validate.
+        print()
+        print(
+            "WARNING: these frozen label keys have no column counterpart "
+            "and were excluded from EVERY comparison below -- the "
+            "coverage below is an overcount of what was actually "
+            "validated:"
+        )
+        for key in sorted(UNMAPPABLE_LABEL_KEYS):
+            print(f"  {key}")
+        print()
+
+    for result in results:
         print(f"{result.column:<44} {result.agreed:>4}/{result.of:<4}")
     print()
     print("disagreements, for a human to arbitrate:")
-    for result in compare_corpus(corpus_dir, split):
+    for result in results:
         for slug in result.disagreements:
             print(f"  {result.column:<44} {slug}")

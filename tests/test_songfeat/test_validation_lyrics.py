@@ -64,3 +64,22 @@ def test_the_two_splits_are_reported_separately_and_held_out_is_thirteen():
 def test_an_unknown_split_raises_rather_than_defaulting_to_everything():
     with pytest.raises(ValueError, match="unknown split"):
         vl.slugs_for(CORPUS, "all")
+
+
+def test_every_frozen_theme_label_key_maps_onto_a_column():
+    """UNMAPPABLE_LABEL_KEYS must be empty for the frozen corpus.
+
+    Fix round 1: two frozen label keys (``religion_devotional``,
+    ``activities_eating``) spell the same compound child name in the
+    spec differently from the vocabulary's own slug and were, before
+    this fix, silently dropped from every comparison rather than
+    aliased -- which inflates apparent coverage instead of flagging a
+    real gap. This pins the post-fix state: scanning every label in
+    both splits leaves nothing unmapped.
+    """
+    vl.UNMAPPABLE_LABEL_KEYS.clear()
+    labels = vl._labels(CORPUS)["labels"]
+    assert labels, "the harness found no labelled songs to scan"
+    for record in labels.values():
+        vl._theme_columns(record.get("themes", {}))
+    assert vl.UNMAPPABLE_LABEL_KEYS == set(), vl.UNMAPPABLE_LABEL_KEYS
