@@ -8,16 +8,6 @@ from ..record import FeatureRecord
 from .base import BaseSink
 
 
-def _flatten(record) -> dict:
-    """A record's columns as a flat ``{name: value}`` mapping.
-
-    Accepts a ``FeatureRecord`` (via its own ``flat()``) or an already-flat
-    mapping, since a caller writing a derived/aggregated row -- one with no
-    identity fields to flatten -- can hand either sink a plain dict.
-    """
-    return record.flat() if hasattr(record, "flat") else dict(record)
-
-
 class CsvSink(BaseSink):
     """Wide rows via flat(). Buffers, because error columns are only known
     once every record has been seen."""
@@ -30,8 +20,8 @@ class CsvSink(BaseSink):
     def open(self, schema: list[str]) -> None:
         super().open([name for name in schema if name not in self._exclude])
 
-    def write(self, record) -> None:
-        row = _flatten(record)
+    def write(self, record: FeatureRecord) -> None:
+        row = record.flat()
         self._rows.append({k: v for k, v in row.items() if k not in self._exclude})
 
     def close(self) -> None:

@@ -96,14 +96,27 @@ def unassessable_columns(records, minimum: int = MIN_PAIRWISE) -> list[str]:
     Reported rather than dropped: "we could not tell" and "not
     redundant" are different answers, and conflating them is how a
     profiler quietly understates redundancy.
+
+    Only numeric-or-null columns are candidates at all -- the same
+    eligibility test ``correlated_pairs`` applies -- so a fully-populated
+    string column is simply not a candidate for redundancy assessment,
+    rather than being counted as having zero known values and reported as
+    unmeasurable alongside genuinely sparse numeric columns.
     """
-    counts: dict[str, int] = {}
+    values_by_column: dict[str, list] = {}
     for record in records:
         for column, value in record.items():
-            if isinstance(value, (int, float)) and value is not None:
-                counts[column] = counts.get(column, 0) + 1
-    columns = {column for record in records for column in record}
-    return sorted(column for column in columns if counts.get(column, 0) < minimum)
+            values_by_column.setdefault(column, []).append(value)
+
+    counts: dict[str, int] = {}
+    for column, values in values_by_column.items():
+        if all(
+            v is None or (isinstance(v, (int, float)) and not isinstance(v, bool))
+            for v in values
+        ):
+            counts[column] = sum(1 for v in values if v is not None)
+
+    return sorted(column for column, count in counts.items() if count < minimum)
 
 
 def correlated_pairs(

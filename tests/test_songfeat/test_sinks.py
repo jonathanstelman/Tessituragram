@@ -76,17 +76,28 @@ def test_json_sink_writes_a_single_array(tmp_path):
 def test_a_csv_sink_may_decline_to_write_the_provenance_columns(tmp_path):
     """Provenance is mandatory on the RECORD; a sink may omit it. That way
     it can be left out of a teacher's spreadsheet deliberately, but never
-    lost by accident."""
+    lost by accident.
+
+    Writes a real FeatureRecord rather than a bare dict: CsvSink.write
+    takes a FeatureRecord like every other sink, and the schema here
+    includes every identity column flat() produces, so none of them land
+    in close()'s "extra" and blur the pinned header below.
+    """
     path = tmp_path / "o.csv"
+    schema = list(FeatureRecord.IDENTITY) + ["clf_model", "clf_question_set", "theme_love"]
     sink = CsvSink(str(path), exclude=("clf_model", "clf_question_set"))
-    sink.open(["title", "clf_model", "clf_question_set", "theme_love"])
-    sink.write({"title": "A", "clf_model": "fake/jev-1",
-                "clf_question_set": "full@v1", "theme_love": 0.9})
+    sink.open(schema)
+    sink.write(FeatureRecord(
+        source_path="song.mid", source_format="midi", part_index=0,
+        features={"clf_model": "fake/jev-1", "clf_question_set": "full@v1",
+                  "theme_love": 0.9},
+    ))
     sink.close()
 
     header, row = path.read_text(encoding="utf-8").splitlines()[:2]
-    assert header.split(",") == ["title", "theme_love"]
+    assert header.split(",") == list(FeatureRecord.IDENTITY) + ["theme_love"]
     assert "fake/jev-1" not in row
+    assert "full@v1" not in row
 
 
 def test_a_jsonl_sink_may_decline_to_write_the_provenance_columns(tmp_path):

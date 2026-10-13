@@ -136,6 +136,23 @@ def test_print_profile_distinguishes_unassessable_from_assessed_columns(capsys):
     assert unassessable_block.strip() == "d"
 
 
+def test_unassessable_columns_ignores_fully_populated_string_columns():
+    """A fully-populated string column (e.g. clf_model) is not a candidate
+    for redundancy assessment at all -- unlike a genuinely sparse numeric
+    column, it must never appear under "too few known values to assess."
+    This is the regression guard for the defect where counting any
+    non-numeric value as "not known" reported every string column as
+    unmeasurable on every corpus."""
+    from songfeat.profile import unassessable_columns
+
+    records = [
+        {"txt": "a", "sparse": None},
+        {"txt": "b", "sparse": None},
+        {"txt": "c", "sparse": 7.0},
+    ]
+    assert unassessable_columns(records) == ["sparse"]
+
+
 def test_weak_for_format_flags_chromaticism_on_midi():
     # chromaticism (Task 12), lyrics_text (Task 2 of the lyrics plan),
     # lyrics_provenance (Task 11), lyrics_themes (Task 5), lyrics_tone
