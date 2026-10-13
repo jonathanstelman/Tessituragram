@@ -128,7 +128,9 @@ venv/bin/python -m songfeat scores/ --groups lyrics --lyrics-estimate
 
 While developing, `--lyrics-questions core` asks 13 questions instead of 153 — one call per
 song, about 8% of the cost — and `--lyrics-max-calls N` stops a run rather than overspending if
-a glob matched more than you meant.
+a glob matched more than you meant. The per-question answer cache defaults to
+`.songfeat/jev-cache.sqlite`; `--lyrics-cache PATH` points it somewhere else, so a cache built
+while rewording questions during development never mixes with the one a real run relies on.
 
 **Lyrics must be in the file.** MIDI carries no words, so every column in this group is null on
 a MIDI input. MusicXML, which carries `<lyric>` elements, is what this group needs.
