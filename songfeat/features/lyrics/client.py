@@ -65,6 +65,28 @@ $0.006090).
 ``_payload`` and ``_parse_answer`` are the only two functions that know
 the wire format.
 
+**Model id: what we ask with, and what answers.** ``DEFAULT_MODEL`` is
+the alias ``jev-latest``, which resolves server-side to a version. The
+response reports that version in its ``model`` field, and it is that
+resolved id -- not the alias -- that goes into the ``clf_model``
+provenance column: an alias cannot distinguish a database built against
+jev-1.13.0 from one built against whatever the alias points at next
+year, which is the column's whole purpose.
+
+The *cache key* still uses the alias, deliberately and with a known
+limitation. A lookup has to happen before any call is made, so on a
+cold run the resolved id is not yet known and there is nothing else to
+key on. Instead of keying on a value that is unavailable exactly when
+it is needed, the cache records the alias -> resolved id mapping it saw
+(``AnswerCache.note_resolved_model``) and, when a later response
+reports a *different* resolved id for the same alias, discards every
+answer stored under that alias as stale. So an alias rolling forward
+costs one re-classification instead of silently serving a previous
+model's answers for ever. What it does not give is answers from two
+model versions coexisting in one cache file; that needs the resolved id
+in the key itself, and is documented as a limitation rather than
+half-built.
+
 **``criteria`` and the shared Score rubric (fix round 1).** The live API
 requires a ``criteria`` field: a ``{answer: description}`` map for Noul
 and Choice, an ordered list of level descriptions for Score. For
@@ -106,7 +128,20 @@ CHARS_PER_TOKEN = 4
 
 
 class BudgetExceeded(RuntimeError):
-    pass
+    """The call budget ran out, carrying whatever was already paid for.
+
+    ``answers`` holds the answers from the batches that *did* complete
+    before the budget stopped the run. They have been paid for, so
+    throwing them away means paying for them again on the next run;
+    the caller (``service.classify_part``) writes them to the cache on
+    its way out. The exception still propagates -- a budget stop is
+    meant to stop -- it just no longer discards the money already
+    spent.
+    """
+
+    def __init__(self, message: str, answers: Sequence[Answer] = ()) -> None:
+        super().__init__(message)
+        self.answers = list(answers)
 
 
 @dataclass(frozen=True)
@@ -118,6 +153,11 @@ class Estimate:
 
 class JevClient(Protocol):
     model: str
+    #: The concrete model id the server says answered, once one has --
+    #: ``model`` may be an alias (``jev-latest``) that resolves
+    #: server-side to a version (``jev-1.13.0``). None until a response
+    #: has reported one.
+    resolved_model: str | None
     calls_made: int
 
     def ask(self, state: str, questions: Sequence[Question]) -> list[Answer]: ...
@@ -188,6 +228,12 @@ class HttpJevClient:
             ) from exc
         self._httpx = httpx
         self.model = model
+        #: The id the server says actually answered, e.g. ``jev-1.13.0``
+        #: for the ``jev-latest`` alias. Known only once a response has
+        #: come back, so it is None until the first successful call --
+        #: which is why the cache keys on ``model`` (the alias) and not
+        #: on this. See the module docstring's "Model id" note.
+        self.resolved_model: str | None = None
         self.max_calls = max_calls
         self.max_retries = max_retries
         self.calls_made = 0
@@ -203,9 +249,13 @@ class HttpJevClient:
         answers: list[Answer] = []
         for batch in _batches(questions):
             if self.max_calls is not None and self.calls_made >= self.max_calls:
+                # The answers already collected were paid for. They go
+                # out with the exception so the caller can bank them
+                # rather than buy them again next run.
                 raise BudgetExceeded(
                     f"stopping after {self.max_calls} calls; raise "
-                    f"--lyrics-max-calls or narrow the inputs"
+                    f"--lyrics-max-calls or narrow the inputs",
+                    answers=answers,
                 )
             answers.extend(self._ask_one(state, batch))
         return answers
@@ -223,7 +273,28 @@ class HttpJevClient:
                 last = f"{type(error).__name__}"
             else:
                 if response.status_code == 200:
-                    returned = response.json().get("answers", {})
+                    # A 200 whose body is not the JSON object we expect
+                    # is a failure like any other, not an exception out
+                    # of the middle of a run: json() raises
+                    # JSONDecodeError on a malformed body, which is NOT
+                    # an httpx.HTTPError and so was not caught above.
+                    try:
+                        body = response.json()
+                    except Exception:  # noqa: BLE001 - any decode failure
+                        body = None
+                    if not isinstance(body, dict):
+                        last = "HTTP 200 with a body that is not a JSON object"
+                        break
+                    returned = body.get("answers")
+                    if not isinstance(returned, dict):
+                        last = "HTTP 200 with no 'answers' object in the body"
+                        break
+                    # The server reports which concrete model answered,
+                    # so provenance can record a version rather than the
+                    # "jev-latest" alias we asked with.
+                    reported = body.get("model")
+                    if isinstance(reported, str) and reported:
+                        self.resolved_model = reported
                     return [
                         _parse_answer(question, returned.get(question.id))
                         for question in batch
@@ -243,8 +314,13 @@ class FakeJevClient:
     to script is a test that passes for the wrong reason.
     """
 
-    def __init__(self, scripted: dict[str, Answer], model: str = "fake/jev-1") -> None:
+    def __init__(self, scripted: dict[str, Answer], model: str = "fake/jev-1",
+                 resolved_model: str | None = None) -> None:
         self.model = model
+        #: Default None: a fake that invents a resolved id would hide
+        #: the real "we asked with an alias and nothing came back to
+        #: resolve it" case. Tests that want one pass it.
+        self.resolved_model = resolved_model
         self.scripted = scripted
         self.calls_made = 0
 

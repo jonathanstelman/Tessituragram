@@ -30,7 +30,7 @@ from typing import Any
 from ...model import Part, Piece
 from ..base import feature
 from .questions import Answer, Kind, Question, register
-from .service import classify_part
+from .service import classify_part, error_summary
 from .vocabulary import CAST_MECHANISMS, CAST_QUESTIONS, GENDERS
 
 #: Subject slug, and the description substituted into its questions.
@@ -111,32 +111,41 @@ def cast_score(
     answers: dict[str, Answer], subject: str
 ) -> tuple[int | None, str | None]:
     """The 0-5 adaptation cost for one subject, and the mechanism that
-    set it, or (None, None) if no mechanism question was answered for
-    this subject at all.
+    set it, or (None, None) unless ALL FIVE mechanisms were answered.
 
     An int, not a float: the value is a lookup into CAST_MECHANISMS'
     five integer costs, never a model-returned probability-weighted
     mean, so it can only ever land on 0, 1, 3, 4 or 5 -- a float would
     advertise a precision (3.5?) the derivation cannot produce.
 
-    A real 0 (every answered mechanism present but none established)
-    is distinct from None (no mechanism question was asked for this
-    subject): the former says "nothing was cast"; the latter says "we
-    don't know". Ties at equal cost break by CAST_MECHANISMS order,
-    which is documented in vocabulary.py rather than left incidental.
+    ALL FIVE, ALWAYS -- the same all-or-nothing precondition
+    ``age.band_from`` applies to its nine inputs, and for a stronger
+    reason. The cost is a MAX, so a mechanism with no answer can only
+    make it come out too LOW: with ``named_role`` and ``biology``
+    missing, a text that is not adaptable at all reported
+    ``gender_adaptation_cost = 1, blocker = "pronouns"``, i.e. "swap
+    the pronouns and you're done", with nothing in the row saying
+    anything had been missed. That is the first driving use case --
+    "the teacher needs to know which, before assigning the song" --
+    answered backwards. A lean ``core`` run showed the same thing in
+    real output: it asks only ``pronouns`` of the five, and all three
+    songs came back cost 0, blocker null, which reads as "nothing to
+    change".
+
+    So an under-informed cost is not reported as a cost. A real 0
+    (all five answered, none established) still means "nothing was
+    cast"; None means "we did not read enough to say". Ties at equal
+    cost break by CAST_MECHANISMS order, which is documented in
+    vocabulary.py rather than left incidental.
     """
-    seen = False
     worst_cost = 0
     blocker: str | None = None
     for mechanism, cost in CAST_MECHANISMS:
         answer = answers.get(f"{subject}_cast_by_{mechanism}")
         if answer is None or answer.error or answer.probability is None:
-            continue
-        seen = True
+            return None, None
         if answer.probability >= FIRES and cost > worst_cost:
             worst_cost, blocker = cost, mechanism
-    if not seen:
-        return None, None
     return worst_cost, blocker
 
 
@@ -153,12 +162,18 @@ def columns_from(answers: dict[str, Answer]) -> dict[str, Any]:
     gate = out[_GATE]
     gated_open = gate is not None and gate >= FIRES
 
-    costs: list[tuple[int, str | None]] = []
+    # One entry per subject that applies to this song, in SUBJECTS
+    # order. A None entry is a subject whose cost could not be
+    # established, which the derived cost must respect rather than
+    # quietly maximise over what happens to be present.
+    costs: list[tuple[int, str | None] | None] = []
     for subject, _description in SUBJECTS:
         if subject == "love_interest" and not gated_open:
             # Null, not 0.0: with no relational focus there is no
             # beloved whose gender could be cast, so "not cast" would
-            # be an answer to a question that does not arise.
+            # be an answer to a question that does not arise. Not a
+            # missing answer either -- the subject does not apply, so
+            # it contributes nothing to the cost and does not block it.
             continue
         out[f"{subject}_gender"] = _choice_or_none(answers.get(f"{subject}_gender"))
         for mechanism, _cost in CAST_MECHANISMS:
@@ -169,12 +184,15 @@ def columns_from(answers: dict[str, Answer]) -> dict[str, Any]:
             )
         score, blocker = cast_score(answers, subject)
         out[f"{subject}_gender_cast"] = score
-        if score is not None:
-            costs.append((score, blocker))
+        costs.append(None if score is None else (score, blocker))
 
-    if costs:
+    if costs and all(entry is not None for entry in costs):
         worst = max(cost for cost, _blocker in costs)
         out["gender_adaptation_cost"] = worst
+        # Ties break by SUBJECTS order, so the narrator wins an equal
+        # cost: the narrator's casting is the one that always applies
+        # (it is never gated), so it is the one a teacher is always
+        # entitled to see named.
         out["gender_adaptation_blocker"] = next(
             blocker for cost, blocker in costs if cost == worst
         )
@@ -191,7 +209,10 @@ def columns_from(answers: dict[str, Answer]) -> dict[str, Any]:
         "character, or a biological detail (not adaptable). "
         "``gender_adaptation_cost`` is 0-5, the worse of the two subjects, "
         "and ``gender_adaptation_blocker`` names the mechanism that set "
-        "it. The love-interest columns are null unless the song has a "
+        "it -- both null unless every mechanism they read was answered, "
+        "because the cost is a maximum and a missing mechanism could "
+        "only make it read too low ('swap the pronouns' for a text that "
+        "cannot be adapted at all). The love-interest columns are null unless the song has a "
         "relational focus: a text with incidental gendered people in it "
         "has no beloved whose gender could be cast. Gender is as the TEXT "
         "casts it; where performance tradition assigns a role to another "
@@ -200,9 +221,19 @@ def columns_from(answers: dict[str, Answer]) -> dict[str, Any]:
     ),
     fields=PERSPECTIVE_FIELDS,
     best_with=("musicxml",),
+    # The one opt-in group: it is neither offline nor free, so an
+    # unfiltered run leaves it out entirely (see FeatureSpec.opt_in).
+    opt_in=True,
 )
 def lyrics_perspective(part: Part, piece: Piece) -> dict[str, Any]:
     classification = classify_part(part, piece)
     if classification.reason is not None:
         return {name: None for name in PERSPECTIVE_FIELDS}
-    return columns_from(classification.answers)
+    out = columns_from(classification.answers)
+    # A question that came back as an error nulls its own column; its
+    # reason goes to the record's error channel rather than being
+    # dropped, which would leave a null nothing in the row explains.
+    failures = error_summary(classification.answers, PERSPECTIVE_FIELDS)
+    if failures is not None:
+        out["_errors"] = {"lyrics_perspective": failures}
+    return out

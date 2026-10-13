@@ -185,6 +185,43 @@ class AnswerCache:
         except sqlite3.Error:
             return
 
+    def note_resolved_model(self, alias: str, resolved: str) -> bool:
+        """Record which concrete model the alias resolved to, and drop
+        every answer stored under it if that has changed.
+
+        The key is the alias (``jev-latest``), because a lookup happens
+        before any call and the resolved id is unknown then -- see the
+        client module docstring. The consequence this guards is the one
+        that matters: when the server rolls the alias forward, answers
+        written under the old version stay keyed on the alias and would
+        be served for ever against a different model. Seeing a new
+        resolved id for a known alias is proof that happened, so those
+        rows are discarded and re-asked once rather than quietly
+        misattributed.
+
+        Returns True when entries were invalidated. A first sighting is
+        not a change: nothing is discarded, the mapping is just stored.
+        """
+        if self._connection is None:
+            return False
+        key = f"resolved_model:{alias}"
+        try:
+            row = self._connection.execute(
+                "SELECT value FROM meta WHERE key = ?", (key,)
+            ).fetchone()
+            stale = row is not None and row[0] != resolved
+            if stale:
+                self._connection.execute(
+                    "DELETE FROM answers WHERE model = ?", (alias,)
+                )
+            self._connection.execute(
+                "INSERT OR REPLACE INTO meta VALUES (?, ?)", (key, resolved)
+            )
+            self._connection.commit()
+        except sqlite3.Error:
+            return False
+        return stale
+
     def close(self) -> None:
         if self._connection is not None:
             self._connection.close()

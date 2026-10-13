@@ -267,3 +267,214 @@ def test_the_default_schema_is_unchanged_by_this_group():
     from songfeat.features import schema
 
     assert len(schema(["basic", "vocal", "jsymbolic", "native"])) == 213
+
+
+# --- failure inside classify_part (fix wave, C1) ---------------------------
+
+
+class _RaisingClient:
+    """A client that fails, counting how often it was asked to."""
+
+    model = "fake/jev-1"
+    resolved_model = None
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+        self.calls_made = 0
+        self.asks = 0
+
+    def ask(self, state, questions):
+        self.asks += 1
+        raise self.error
+
+
+def test_a_raising_client_is_asked_once_per_song_not_once_per_axis(tmp_path):
+    """The memo used to be written only on success, so each of the eight
+    axis features re-entered classify_part and re-attempted the call:
+    one part cost 7 further ``ask`` invocations -- up to 56 HTTP calls
+    for one song on a full run, repeated per file -- and every one of
+    them was paid for."""
+    client = _RaisingClient(RuntimeError("the roof fell in"))
+    service.configure(client=client,
+                      cache=AnswerCache(str(tmp_path / "c.sqlite")))
+    part = _part("love", "me")
+    out = base.extract_part(part, _piece(part), groups_filter=["lyrics"])
+
+    assert client.asks == 1, "one attempt per song, not one per axis"
+    reason = out["lyrics_classified_undefined_reason"]
+    assert reason is not None, "a null group with a null reason is the defect"
+    assert "RuntimeError: the roof fell in" in reason
+    # The group nulls, as a whole-group failure must.
+    assert out["theme_love"] is None
+    assert out["advisory_sex"] is None
+    assert out["age_band"] is None
+    assert out["age_band_rule"] is None
+
+
+def test_the_failure_reason_never_carries_the_api_key(tmp_path, monkeypatch):
+    """The reason is a user-visible column. The key is read once from the
+    environment and goes in a header -- but this reason is built from an
+    exception raised by code we do not own, and a key that reached a CSV
+    could not be un-leaked."""
+    monkeypatch.setenv("JEV_KEY", "sk-live-NOTAREALKEY-7788")
+    client = _RaisingClient(
+        RuntimeError("401 while authenticating with sk-live-NOTAREALKEY-7788")
+    )
+    service.configure(client=client,
+                      cache=AnswerCache(str(tmp_path / "c.sqlite")))
+    part = _part("love", "me")
+    out = base.extract_part(part, _piece(part), groups_filter=["lyrics"])
+
+    reason = out["lyrics_classified_undefined_reason"]
+    assert "sk-live-NOTAREALKEY-7788" not in reason
+    assert "[redacted]" in reason
+    assert "401 while authenticating with" in reason, (
+        "redaction must not cost the reason its meaning"
+    )
+
+
+class _OneBatchThenBudget:
+    """Answers the first batch, then stops on budget -- carrying what it
+    already answered, because those answers were paid for."""
+
+    model = "fake/jev-1"
+    resolved_model = None
+
+    def __init__(self, answered: int) -> None:
+        self.answered = answered
+        self.calls_made = 1
+        self.asks = 0
+
+    def ask(self, state, questions):
+        from songfeat.features.lyrics.client import BudgetExceeded
+
+        self.asks += 1
+        paid_for = [
+            Answer(question.id, probability=0.75)
+            for question in questions[: self.answered]
+        ]
+        raise BudgetExceeded("stopping after 1 calls", answers=paid_for)
+
+
+def test_answers_paid_for_before_a_budget_stop_reach_the_cache(tmp_path):
+    """3 calls made, 60 questions answered, BudgetExceeded on the fourth,
+    and ``ask`` discarded the accumulated answers on the way out:
+    nothing reached the cache, so the next run paid for them again."""
+    cache = AnswerCache(str(tmp_path / "c.sqlite"))
+    client = _OneBatchThenBudget(answered=20)
+    service.configure(client=client, cache=cache, question_set_name="full")
+    part = _part("love", "me")
+    out = base.extract_part(part, _piece(part), groups_filter=["lyrics"])
+
+    assert client.asks == 1
+    assert "BudgetExceeded" in out["lyrics_classified_undefined_reason"]
+
+    asked = question_set("full")
+    banked = sum(
+        1 for question in asked
+        if cache.get(part_hash(part), "fake/jev-1", question) is not None
+    )
+    assert banked == 20, (
+        "every answer the budget stop had already been billed for must be "
+        "in the cache, and nothing else"
+    )
+
+
+def part_hash(part):
+    from songfeat.features.lyrics.assemble import assemble_text
+
+    return assemble_text(part).sha256
+
+
+class _StrayIdClient:
+    model = "fake/jev-1"
+    resolved_model = "fake/jev-1.0.1"
+    calls_made = 0
+
+    def ask(self, state, questions):
+        answers = [
+            Answer(question.id, probability=0.8, score=4.0, choice="en")
+            for question in questions
+            if question.id != "theme_love"          # one question omitted
+        ]
+        answers.append(Answer("a_question_nobody_asked", probability=0.1))
+        return answers
+
+
+def test_an_unknown_or_missing_question_id_nulls_one_column_not_the_group(tmp_path):
+    """A client returning an id we never asked about used to raise
+    KeyError inside classify_part, which -- before C1 -- nulled all 178
+    columns with no reason at all. An omitted id did the same."""
+    service.configure(client=_StrayIdClient(),
+                      cache=AnswerCache(str(tmp_path / "c.sqlite")),
+                      question_set_name="core")
+    part = _part("love", "me")
+    out = base.extract_part(part, _piece(part), groups_filter=["lyrics"])
+
+    assert out["lyrics_classified_undefined_reason"] is None, (
+        "one stray answer is not a whole-group failure"
+    )
+    # The omitted question's own column nulls...
+    assert out["theme_love"] is None
+    # ... and its reason is reported rather than dropped.
+    assert "theme_love: the classifier returned no answer" in \
+        out["_errors"]["lyrics_themes"]
+    # ... while everything else keeps its value.
+    assert out["tone_comic"] == 0.8
+    assert out["advisory_violence"] == 4.0
+
+
+def test_an_errored_answer_reports_its_status_rather_than_a_bare_null(tmp_path):
+    """``Answer.error`` carries "HTTP 503", "no score returned", "answer
+    'androgynous' is not a declared option" -- and every axis used to map
+    it to a bare None and drop the error, so the spec's requirement that
+    a failure's reason carry the status reached nothing."""
+    service.configure(
+        client=FakeJevClient({
+            "advisory_violence": Answer("advisory_violence", error="HTTP 503"),
+            "advisory_violence_depicted": Answer(
+                "advisory_violence_depicted", probability=0.4),
+        }),
+        cache=AnswerCache(str(tmp_path / "c.sqlite")),
+        question_set_name="core",
+    )
+    part = _part("love", "me")
+    out = base.extract_part(part, _piece(part), groups_filter=["lyrics"])
+
+    assert out["advisory_violence"] is None
+    summary = out["_errors"]["lyrics_advisories"]
+    assert "advisory_violence: HTTP 503" in summary
+    # Exactly the one dimension this axis asked about in the core set,
+    # and the two modifiers -- one of which answered. So two failures:
+    # the intensity (503) and the first_person modifier (unscripted).
+    assert summary.startswith("2 question(s) failed: "), summary
+    assert out["advisory_violence_depicted"] == 0.4
+
+
+def test_the_resolved_model_is_what_provenance_records(tmp_path):
+    """``clf_model`` recorded "jev-latest", an alias that resolves
+    server-side. Provenance cannot distinguish databases built against
+    different model versions if it records the alias, which is the
+    column's entire stated purpose."""
+    service.configure(
+        client=FakeJevClient(_scripted(theme_love={"probability": 0.9}),
+                             model="jev-latest",
+                             resolved_model="jev-1.13.0"),
+        cache=AnswerCache(str(tmp_path / "c.sqlite")),
+        question_set_name="core",
+    )
+    part = _part("love", "me")
+    out = base.extract_part(part, _piece(part), groups_filter=["lyrics"])
+    assert out["clf_model"] == "jev-1.13.0"
+
+
+def test_without_a_resolved_id_provenance_falls_back_to_the_alias(tmp_path):
+    service.configure(
+        client=FakeJevClient(_scripted(theme_love={"probability": 0.9}),
+                             model="jev-latest"),
+        cache=AnswerCache(str(tmp_path / "c.sqlite")),
+        question_set_name="core",
+    )
+    part = _part("love", "me")
+    out = base.extract_part(part, _piece(part), groups_filter=["lyrics"])
+    assert out["clf_model"] == "jev-latest"

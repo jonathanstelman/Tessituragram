@@ -53,10 +53,35 @@ def assemble_text(part: Part) -> LyricText | None:
     this song and found no words", which is a different claim.
     """
     verses: dict[int, list[str]] = {}
+    # Syllables already taken at the onset being read, so a chord does
+    # not say the same word once per pitch. ``loaders`` builds one Note
+    # per chord member and attaches the chord's single ``lyrics`` tuple
+    # to every one of them, so a two-note chord carrying "ho" repeated
+    # it twice: "ho ho ly" for "ho-ly", word_count 3 where the truth is
+    # 2 -- which corrupted the classified state, the sha256 cache key,
+    # the sidecar and lyrics_word_count on every divisi or chordal
+    # lyric-bearing part, and SATB divisi is squarely inside the
+    # library this serves. Reassembled text is a SEQUENCE measurement
+    # (see features/base.py's note-set convention), so the reduction to
+    # one text per onset is the right note set for it.
+    #
+    # Identity is the whole syllable, not just its text: two voices
+    # genuinely singing different words at one onset both survive,
+    # while two singing the same word contribute it once -- which is
+    # what the text of that moment actually is.
+    current_onset: float | None = None
+    taken: set[tuple] = set()
     for note in sorted(part.notes, key=lambda n: (n.onset, n.midi)):
+        if note.onset != current_onset:
+            current_onset, taken = note.onset, set()
         for syllable in note.lyrics:
             if not syllable.text:
                 continue
+            identity = (syllable.number, syllable.text, syllable.syllabic,
+                        syllable.extend)
+            if identity in taken:
+                continue
+            taken.add(identity)
             words = verses.setdefault(syllable.number, [])
             if words and syllable.syllabic in _CONTINUING:
                 words[-1] += syllable.text

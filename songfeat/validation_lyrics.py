@@ -32,8 +32,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .features import base
+from .features.lyrics.age import band_from
 from .features.lyrics.assemble import assemble_text
-from .features.lyrics.questions import Answer, Kind, Question
+from .features.lyrics.questions import Answer, Kind, Question, question_set
+from .features.lyrics.themes import FIRES as THEME_FIRES
 from .features.lyrics.vocabulary import (
     ADVISORIES, ADVISORY_MODIFIERS, SENSITIVE, THEMES, TONES,
 )
@@ -44,6 +46,49 @@ SPLITS = {"dev": "dev", "held-out": "held_out"}
 #: A probability at or above this is read as "the model said yes", to be
 #: comparable with a boolean label.
 FIRES = 0.5
+
+#: Columns whose comparison is a TOLERANCE, not an equality, and the
+#: tolerance used. Every ``Score`` question returns a
+#: probability-weighted mean that "can land between levels" (the
+#: provider's own words), while the label is an integer level. Compared
+#: with ``==``, as this harness did until the fix wave, the nine
+#: ``advisory_*`` intensities and the thirteen ``*_centrality`` columns
+#: could essentially never agree with a real model: a live run returned
+#: ``advisory_violence = 0.64`` and
+#: ``sensitive_loss_of_parent_centrality = 4.72``, neither of which
+#: equals any integer, so the first real agreement table would have read
+#: near-zero on all twenty-two columns for purely arithmetic reasons.
+#: The oracle hid it by returning ``float(label)`` exactly.
+#:
+#: Half a level: the mean rounds to the labelled level. Looser would
+#: score a 2 as a 3. ``validation.within_tolerance`` is the precedent --
+#: the analytic harness has compared continuous values this way from the
+#: start -- and ``print_agreement`` states the figure it used, because an
+#: agreement number whose tolerance is unstated is not reproducible.
+SCORE_TOLERANCE = 0.5
+
+SCORE_COLUMNS: frozenset[str] = frozenset(
+    question.column for question in question_set("full")
+    if question.kind is Kind.SCORE
+)
+
+#: Columns the frozen corpus carries no label for, and why -- printed by
+#: ``print_agreement`` rather than quietly absent, and never given an
+#: invented label vocabulary.
+#:
+#: ``lyrics_language`` is the whole list: the corpus (frozen before any
+#: question wording existed) has no language key in any song's label
+#: record. The alternative was to assume "every song is English except
+#: the one the harness already names as Italian", which is a mapping
+#: invented here rather than a label authored there -- and the one thing
+#: the freeze exists to prevent. A language label belongs in a future
+#: corpus release, authored with the songs.
+UNLABELLED_COLUMNS: dict[str, str] = {
+    "lyrics_language": (
+        "the frozen corpus carries no language label; inventing one here "
+        "would be this harness labelling its own exam"
+    ),
+}
 
 #: The label vocabulary's own spelling for a handful of theme children
 #: differs from the column name the axis actually declared (themes.py /
@@ -179,6 +224,22 @@ def _theme_columns(themes: dict[str, Any]) -> dict[str, Any]:
             UNMAPPABLE_LABEL_KEYS.add(f"themes.{key}")
             continue
         out[f"theme_{matched_family}_{slug}"] = bool(value)
+
+    # The nine divergence columns, derived from the labels by the same
+    # documented rule the axis uses (themes.columns_from): 1 when the
+    # family and its children disagree about whether the theme is
+    # present. Absent from the comparison entirely until the fix wave,
+    # which left nine of the group's columns unscored -- and they are
+    # the rows the spec says are worth reading while the vocabulary is
+    # young. An int, not a bool: 1 is a real divergence, not "true",
+    # and the int branch of ``_agrees`` compares it exactly against the
+    # 0.0/1.0 the axis emits.
+    for family, (_text, children) in THEMES.items():
+        family_fires = out[f"theme_{family}"]
+        any_child_fires = any(
+            out[f"theme_{family}_{slug}"] for slug, _t in children
+        )
+        out[f"theme_{family}_divergence"] = int(family_fires != any_child_fires)
     return out
 
 
@@ -232,6 +293,17 @@ def _expected_columns(record: dict[str, Any]) -> dict[str, Any]:
     out.update(_advisory_columns(record.get("advisories", {})))
     out.update(_sensitive_columns(record.get("sensitive", {})))
     out.update(_perspective_columns(record.get("perspective", {})))
+
+    # age_band and age_band_driver are DERIVED, not asked and not
+    # labelled, so their expectation is rule v1 applied to the labelled
+    # advisories -- the same function the axis calls. That makes the
+    # comparison meaningful rather than circular: what is being scored
+    # is whether the model's advisory intensities land in the band the
+    # TRUE intensities imply. ``age_band_rule`` is not compared: it is
+    # the rule's own version string, not a reading of the song.
+    derived = band_from(out)
+    out["age_band"] = derived["age_band"]
+    out["age_band_driver"] = derived["age_band_driver"]
     return out
 
 
@@ -261,15 +333,22 @@ def _answer_for(question: Question, value: Any) -> Answer:
     raise ValueError(f"unknown question kind: {question.kind!r}")
 
 
-def _agrees(computed: Any, expected: Any) -> bool:
+def _agrees(computed: Any, expected: Any, tolerance: float | None = None) -> bool:
     """Compare one column's computed value against its expected label.
 
     ``None`` on either side, unless both sides are ``None``, is always a
     disagreement: an unasked column is not the same claim as a label of
     zero or false, so it must never be scored as if it agreed with one.
-    A probability is compared to a boolean label via ``FIRES``; a score
-    or a derived integer is compared to an integer label exactly; a
+    A probability is compared to a boolean label via ``FIRES``; a
     choice is compared to a string label exactly.
+
+    An integer label is compared exactly UNLESS a ``tolerance`` is
+    given, which is how every ``Score`` column is compared
+    (``SCORE_COLUMNS``, ``SCORE_TOLERANCE``): the model returns a
+    probability-weighted mean that can land between levels, so exact
+    equality against an integer level is a comparison a real model
+    essentially always loses for arithmetic reasons rather than
+    classification ones.
     """
     if computed is None and expected is None:
         return True
@@ -278,6 +357,8 @@ def _agrees(computed: Any, expected: Any) -> bool:
     if isinstance(expected, bool):
         return (computed >= FIRES) == expected
     if isinstance(expected, int):
+        if tolerance is not None:
+            return abs(computed - expected) <= tolerance
         return computed == expected
     if isinstance(expected, str):
         return computed == expected
@@ -321,7 +402,8 @@ def compare_corpus(corpus_dir: str, split: str) -> list[ColumnAgreement]:
         for column, expected in _expected_columns(labels[slug]).items():
             result = results.setdefault(column, ColumnAgreement(column))
             result.of += 1
-            if _agrees(computed.get(column), expected):
+            tolerance = SCORE_TOLERANCE if column in SCORE_COLUMNS else None
+            if _agrees(computed.get(column), expected, tolerance):
                 result.agreed += 1
             else:
                 result.disagreements.append(slug)
@@ -337,6 +419,19 @@ def print_agreement(corpus_dir: str, split: str) -> None:
         print("NOTE: cast-agreement is Italian, the only non-English song; "
               "its figures are not validation of the (English-only) spec "
               "and must be read with that caveat.")
+
+    print(
+        f"Score columns ({len(SCORE_COLUMNS)} of them: the nine advisory "
+        f"intensities and the thirteen centralities) are counted as "
+        f"agreeing within +/-{SCORE_TOLERANCE} of the labelled level, "
+        "because the model returns a probability-weighted mean that can "
+        "land between levels. Every other column is compared exactly."
+    )
+    if UNLABELLED_COLUMNS:
+        print()
+        print("not compared at all, for want of a label:")
+        for column, why in sorted(UNLABELLED_COLUMNS.items()):
+            print(f"  {column}: {why}")
 
     results = compare_corpus(corpus_dir, split)
 

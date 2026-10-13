@@ -201,3 +201,80 @@ def test_the_nine_rule_inputs_are_exactly_these_and_no_others():
         "advisory_language",
         "advisory_death", "advisory_death_first_person",
     }
+
+
+# --- the two different nulls (fix wave) -----------------------------------
+
+def test_an_attempted_derivation_with_a_missing_input_still_names_the_rule():
+    """The band nulls because one of the nine inputs rule v1 reads is
+    missing -- but the derivation WAS attempted, and which rule was
+    consulted is a fact about that attempt rather than a verdict about
+    the song."""
+    columns = _advisories()
+    del columns["advisory_death_first_person"]
+    out = age.band_from(columns)
+    assert out["age_band"] is None
+    assert out["age_band_driver"] is None
+    assert out["age_band_rule"] == "v1"
+
+
+def test_when_the_group_never_ran_not_even_the_rule_version_is_reported(tmp_path):
+    """Nothing was derived: a MIDI file, no key, no lyrics. A populated
+    ``age_band_rule`` here would be the one column in the group
+    reporting a value about text nobody read."""
+    from songfeat.features import base
+    from songfeat.features.lyrics import service
+    from songfeat.model import Note, Part, Piece
+
+    service.reset()
+    try:
+        part = Part(index=0, name="Voice", notes=[
+            Note(midi=60, onset=0.0, duration=1.0, part=0),
+        ])
+        piece = Piece(source_path="/tmp/s.mid", source_format="midi",
+                      parts=[part])
+        out = base.extract_part(part, piece, groups_filter=["lyrics"])
+        assert out["age_band"] is None
+        assert out["age_band_driver"] is None
+        assert out["age_band_rule"] is None, (
+            "the group did not run, so nothing was derived and no rule "
+            "was consulted"
+        )
+        assert out["lyrics_classified_undefined_reason"] is not None
+    finally:
+        service.reset()
+
+
+def test_an_attempted_classification_populates_the_rule_on_the_record(tmp_path):
+    """The other side of the same distinction, through the real feature:
+    the classifier ran, every advisory came back, so the band and the
+    rule are both reported."""
+    from songfeat.features import base
+    from songfeat.features.lyrics import service
+    from songfeat.features.lyrics.advisories import ADVISORY_FIELDS
+    from songfeat.features.lyrics.client import FakeJevClient
+    from songfeat.features.lyrics.questions import Answer, Kind, question_set
+    from songfeat.model import Note, Part, Piece, Syllable
+
+    scripted = {}
+    for question in question_set("full"):
+        if question.column not in ADVISORY_FIELDS:
+            continue
+        if question.kind is Kind.SCORE:
+            scripted[question.id] = Answer(question.id, score=0.0)
+        else:
+            scripted[question.id] = Answer(question.id, probability=0.0)
+
+    service.configure(client=FakeJevClient(scripted), cache=None)
+    try:
+        part = Part(index=0, name="Voice", notes=[
+            Note(midi=60, onset=0.0, duration=1.0, part=0, lyric="spring",
+                 lyrics=(Syllable(number=1, text="spring", syllabic="single"),)),
+        ])
+        piece = Piece(source_path="/tmp/s.musicxml", source_format="musicxml",
+                      parts=[part])
+        out = base.extract_part(part, piece, groups_filter=["lyrics"])
+        assert out["age_band"] == "child"
+        assert out["age_band_rule"] == "v1"
+    finally:
+        service.reset()

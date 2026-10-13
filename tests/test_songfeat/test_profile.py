@@ -179,3 +179,43 @@ def test_weak_for_format_flags_chromaticism_on_midi():
     # A feature with best_with=None (the default -- "equally valid for
     # every format") must never be flagged, on any format.
     assert "leap_max_semitones" not in weak
+
+
+def test_unassessable_columns_accepts_a_feature_record_like_its_sibling():
+    """``_as_mapping``'s docstring promises both functions take either a
+    FeatureRecord or a plain dict, but this one called ``record.items()``
+    and so raised on a real record. The two functions already disagreed
+    once about what "assessable" means; they now share one predicate,
+    and they must also share one view of what a record is."""
+    from songfeat.profile import correlated_pairs, unassessable_columns
+    from songfeat.record import FeatureRecord
+
+    records = [
+        FeatureRecord(source_path=f"/tmp/{index}.mid", source_format="midi",
+                      part_index=0,
+                      features={"dense": float(index), "sparse": None,
+                                "name": "a string"})
+        for index in range(4)
+    ]
+    # dense has four known values; sparse has none; name is not numeric
+    # and so is not a candidate at all.
+    assert unassessable_columns(records) == ["sparse"]
+    # And the shared predicate means the pair-wise half agrees: it, too,
+    # considers only dense and sparse, so no pair survives.
+    assert correlated_pairs(records) == []
+
+
+def test_the_two_functions_share_one_eligibility_predicate():
+    """Identical copies of a rule are the state immediately before they
+    diverge again. One predicate, called by both."""
+    from songfeat import profile
+
+    assert profile._assessable([1, 2.5, None]) is True
+    assert profile._assessable([1, "two"]) is False
+    assert profile._assessable([True, 1]) is False, (
+        "bool is deliberately excluded even though it is an int subclass"
+    )
+    assert profile._assessable([]) is True, (
+        "a column with no rows is vacuously numeric; the row count is "
+        "what unassessable_columns then reports on"
+    )

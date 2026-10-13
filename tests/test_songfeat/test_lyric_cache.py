@@ -1,7 +1,8 @@
+import os
 import sqlite3
 
 from songfeat.features.lyrics.cache import AnswerCache, SCHEMA_VERSION
-from songfeat.features.lyrics.questions import Answer, Kind, Question
+from songfeat.features.lyrics.questions import Answer, Kind, Question, question_set
 
 QUESTION = Question(id="theme_love", kind=Kind.NOUL, text="Is this about love?",
                     column="theme_love", axis="themes")
@@ -210,3 +211,47 @@ def test_a_core_run_then_a_full_run_reuses_the_cores_answers(tmp_path):
 
     assert hits == ["theme_love", "theme_nature"]
     assert misses == ["tone_comic"]
+
+
+def test_tests_never_see_the_real_default_cache_path():
+    """The autouse guard in conftest redirects cache.DEFAULT_PATH into
+    tmp_path. Without it, any code path that falls back to the default
+    -- ``--validate-lyrics`` has no cache flag of its own -- writes a
+    real, mutable cache into the repository root, which is where a 20KB
+    one was found."""
+    from songfeat.features.lyrics import cache as cache_module
+
+    assert cache_module.DEFAULT_PATH.endswith(
+        os.path.join(".songfeat", "jev-cache.sqlite")
+    )
+    assert cache_module.DEFAULT_PATH != os.path.join(".songfeat", "jev-cache.sqlite"), (
+        "the default path must be redirected under tmp_path during tests"
+    )
+    assert os.path.isabs(cache_module.DEFAULT_PATH)
+
+
+def test_a_rolled_forward_alias_discards_what_was_stored_under_it(tmp_path):
+    """The cache keys on the alias we ask with ("jev-latest"), because a
+    lookup happens before any call and the resolved id is unknown then.
+    So when the server rolls the alias forward, the old version's
+    answers would be served for ever against a different model. Seeing a
+    different resolved id for a known alias is the proof that happened.
+    """
+    cache = AnswerCache(str(tmp_path / "c.sqlite"))
+    question = question_set("core")[0]
+    cache.put("hash", "jev-latest", question,
+              Answer(question.id, probability=0.25), "2026-01-01")
+
+    first = cache.note_resolved_model("jev-latest", "jev-1.13.0")
+    assert first is False, "a first sighting is not a change"
+    hit = cache.get("hash", "jev-latest", question)
+    assert hit is not None and hit[0].probability == 0.25
+
+    rolled = cache.note_resolved_model("jev-latest", "jev-1.14.0")
+    assert rolled is True, "a new resolved id for a known alias is a roll-forward"
+    assert cache.get("hash", "jev-latest", question) is None, (
+        "answers written against the previous model version must not be "
+        "served against the new one"
+    )
+    # Still a change the second time only if it changes again.
+    assert cache.note_resolved_model("jev-latest", "jev-1.14.0") is False

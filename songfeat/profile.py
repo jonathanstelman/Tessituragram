@@ -47,6 +47,26 @@ def _as_mapping(record) -> dict:
     return record if features is None else features
 
 
+def _assessable(values: Iterable) -> bool:
+    """Whether a column can be assessed for redundancy at all.
+
+    One predicate, called by both ``unassessable_columns`` and
+    ``correlated_pairs``, because they must agree on what "assessable"
+    means and have disagreed about it once already. Two verbatim copies
+    of a rule are the state immediately before they diverge again.
+
+    Numeric-or-null: a correlation needs numbers, and ``bool`` is
+    excluded deliberately even though it is an ``int`` subclass -- a
+    flag correlating perfectly with another flag is not the redundancy
+    this looks for, and the project emits no boolean columns anyway.
+    """
+    return all(
+        value is None
+        or (isinstance(value, (int, float)) and not isinstance(value, bool))
+        for value in values
+    )
+
+
 def _column_names(records) -> list[str]:
     seen: list[str] = []
     for record in records:
@@ -105,17 +125,18 @@ def unassessable_columns(records, minimum: int = MIN_PAIRWISE) -> list[str]:
     """
     values_by_column: dict[str, list] = {}
     for record in records:
-        for column, value in record.items():
+        # _as_mapping, not record.items(): this function used to accept
+        # only a plain mapping while _as_mapping's docstring promised
+        # both functions took either, so a real FeatureRecord raised
+        # here.
+        for column, value in _as_mapping(record).items():
             values_by_column.setdefault(column, []).append(value)
 
-    counts: dict[str, int] = {}
-    for column, values in values_by_column.items():
-        if all(
-            v is None or (isinstance(v, (int, float)) and not isinstance(v, bool))
-            for v in values
-        ):
-            counts[column] = sum(1 for v in values if v is not None)
-
+    counts = {
+        column: sum(1 for v in values if v is not None)
+        for column, values in values_by_column.items()
+        if _assessable(values)
+    }
     return sorted(column for column, count in counts.items() if count < minimum)
 
 
@@ -146,10 +167,7 @@ def correlated_pairs(
         if name in exclude_set:
             continue
         values = [_as_mapping(r).get(name) for r in records]
-        if all(
-            v is None or (isinstance(v, (int, float)) and not isinstance(v, bool))
-            for v in values
-        ):
+        if _assessable(values):
             columns[name] = values
 
     found: list[tuple[str, str, float]] = []

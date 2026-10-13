@@ -180,3 +180,61 @@ def test_the_lyrics_text_feature_is_null_with_a_reason_on_a_part_with_no_lyrics(
         "this part carries no lyric events; lyric features need a "
         "lyric-bearing format such as MusicXML"
     )
+
+
+def test_a_chord_says_its_syllable_once_not_once_per_pitch():
+    """``loaders`` builds one Note per chord member and attaches the
+    chord's single ``lyrics`` tuple to every one of them. Assembling
+    over ``part.notes`` therefore repeated the syllable once per pitch:
+    a two-note chord carrying "ho" produced "ho ho ly" with
+    word_count 3, where the truth is "ho ly" and 2. That corrupts the
+    classified state, the sha256 cache key, the sidecar and
+    lyrics_word_count on every divisi or chordal lyric-bearing part --
+    and SATB divisi is squarely inside the library this serves.
+    """
+    chord = Syllable(number=1, text="ho", syllabic="single")
+    part = Part(index=0, name="Voice", notes=[
+        Note(midi=60, onset=0.0, duration=1.0, part=0, lyric="ho",
+             is_chord_member=True, lyrics=(chord,)),
+        Note(midi=64, onset=0.0, duration=1.0, part=0, lyric="ho",
+             is_chord_member=True, lyrics=(chord,)),
+        Note(midi=60, onset=1.0, duration=1.0, part=0, lyric="ly",
+             lyrics=(Syllable(number=1, text="ly", syllabic="single"),)),
+    ])
+    assembled = assemble_text(part)
+    assert assembled.text == "ho ly\n"
+    assert assembled.word_count == 2
+    assert assembled.sha256 == text_sha256("ho ly")
+
+
+def test_a_three_note_chord_whose_voices_sing_different_words_keeps_both():
+    """Deduplication is on the whole syllable, not on the onset: two
+    voices genuinely carrying different text at one moment both survive.
+    Only the same syllable repeated across a chord's pitches is dropped.
+    """
+    shared = Syllable(number=1, text="ah", syllabic="single")
+    part = Part(index=0, name="Voice", notes=[
+        Note(midi=55, onset=0.0, duration=1.0, part=0, lyric="ah",
+             is_chord_member=True, lyrics=(shared,)),
+        Note(midi=60, onset=0.0, duration=1.0, part=0, lyric="ah",
+             is_chord_member=True, lyrics=(shared,)),
+        Note(midi=64, onset=0.0, duration=1.0, part=0, lyric="oh",
+             is_chord_member=True,
+             lyrics=(Syllable(number=1, text="oh", syllabic="single"),)),
+    ])
+    assembled = assemble_text(part)
+    assert assembled.text == "ah oh\n"
+    assert assembled.word_count == 2
+
+
+def test_the_same_word_at_two_different_onsets_is_not_deduplicated():
+    """The dedupe window is one onset. A word repeated later in the line
+    is the line repeating it, not a chord."""
+    part = built(
+        (60, (1, "la", "single")),
+        (62, (1, "la", "single")),
+        (64, (1, "la", "single")),
+    )
+    assembled = assemble_text(part)
+    assert assembled.text == "la la la\n"
+    assert assembled.word_count == 3

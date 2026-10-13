@@ -217,3 +217,56 @@ def test_real_file_matches_reference_implementation():
     assert out["min_note"] == "D2"
     assert out["max_note"] == "E4"
     assert out["tempo_initial_bpm"] == 140.0
+
+
+# --- the opt-in group (fix wave, I1) ---------------------------------------
+
+def test_an_unfiltered_schema_is_the_two_hundred_and_thirteen_analytic_columns():
+    """``schema(None)`` means "all groups", and the lyrics group is
+    registered unconditionally, so a default run emitted 391 columns of
+    which 178 were permanently empty. The spec is explicit: "A default
+    run behaves exactly as it does now."
+    """
+    from songfeat.features import base, schema
+
+    assert len(schema(None)) == 213
+    assert len(schema()) == 213, "no argument and None must agree"
+    assert base.opt_in_groups() == ["lyrics"]
+    # The group is still registered and still reachable by name.
+    assert "lyrics" in base.groups()
+    assert len(schema(["lyrics"])) == 188          # 178 columns + 10 identity
+    assert len(schema(["basic", "vocal", "jsymbolic", "native", "lyrics"])) == 391
+    assert "theme_love" not in schema()
+    assert "theme_love" in schema(["lyrics"])
+
+
+def test_an_unfiltered_extraction_asks_the_classifier_nothing():
+    """The schema half of the opt-in is not enough on its own: an
+    unfiltered ``extract_part`` would still run the eight lyric
+    features, putting 178 null columns into the record that the schema
+    says are not there."""
+    from songfeat.features import base
+    from songfeat.features.lyrics import service
+    from songfeat.features.lyrics.client import FakeJevClient
+    from songfeat.features.lyrics.questions import Answer
+    from songfeat.model import Note, Part, Piece, Syllable
+
+    client = FakeJevClient({"theme_love": Answer("theme_love", probability=0.9)})
+    service.configure(client=client, cache=None)
+    try:
+        part = Part(index=0, name="Voice", notes=[
+            Note(midi=60, onset=0.0, duration=1.0, part=0, lyric="love",
+                 lyrics=(Syllable(number=1, text="love", syllabic="single"),)),
+        ])
+        piece = Piece(source_path="/tmp/s.musicxml", source_format="musicxml",
+                      parts=[part])
+        out = base.extract_part(part, piece)
+
+        assert client.calls_made == 0, "an unfiltered run must not spend money"
+        assert "theme_love" not in out
+        assert "lyrics_classified_undefined_reason" not in out
+        # ... and naming the group is all it takes to get them back.
+        asked = base.extract_part(part, piece, groups_filter=["lyrics"])
+        assert asked["theme_love"] == 0.9
+    finally:
+        service.reset()

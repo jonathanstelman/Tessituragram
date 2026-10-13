@@ -175,12 +175,20 @@ def test_an_unrecognised_choice_value_becomes_null_not_unspecified():
     assert out["narrator_gender"] is None
 
 
-def test_partial_coverage_absent_columns_are_null_and_cost_uses_what_is_present():
+def test_partial_coverage_nulls_the_cast_score_rather_than_under_reporting_it():
     """A core-set run asks narrator_gender, narrator_cast_by_pronouns,
     relational_focus_present and love_interest_gender -- but none of the
     other cast mechanisms. The absent mechanism columns must read None,
-    not 0.0, and the derived cost must be computed only from what was
-    actually asked."""
+    not 0.0, and so must the cast score and the derived cost.
+
+    This test was inverted before the fix wave: it pinned
+    ``narrator_gender_cast == 1`` and ``blocker == "pronouns"`` from
+    the one mechanism that happened to be answered. Because the cost is
+    a MAX, that can only under-report -- "swap the pronouns and you're
+    done" for a text whose ``named_role``/``biology`` answers were
+    never read and might have made it cost 5, not adaptable at all.
+    A lean run showed exactly that in real output: cost 0, blocker
+    null, which reads as "nothing to change"."""
     answers = {
         "narrator_gender": Answer("narrator_gender", choice="male"),
         "narrator_cast_by_pronouns": Answer("narrator_cast_by_pronouns", probability=0.9),
@@ -199,14 +207,14 @@ def test_partial_coverage_absent_columns_are_null_and_cost_uses_what_is_present(
     )
     assert none_count == len(unasked)
 
-    # The cost is computed from the one mechanism present, not from an
-    # absence treated as "nothing fired here either".
-    assert out["narrator_gender_cast"] == 1
-    assert out["gender_adaptation_blocker"] == "pronouns"
+    # Four of the five mechanisms were never read, so there is no
+    # trustworthy cost: null, in the one direction that matters.
+    assert out["narrator_gender_cast"] is None
+    assert out["gender_adaptation_cost"] is None
+    assert out["gender_adaptation_blocker"] is None
 
     # love_interest's gate is open but none of its own mechanisms were
-    # asked, so love_interest_gender_cast is a real zero (seen, nothing
-    # fired) rather than null.
+    # asked either, so its cast score is null too.
     assert out["love_interest_gender"] == "female"
     assert out["love_interest_gender_cast"] is None
     li_unasked = ("pronouns", "address", "agreement", "named_role", "biology")
@@ -214,3 +222,76 @@ def test_partial_coverage_absent_columns_are_null_and_cost_uses_what_is_present(
         1 for mechanism in li_unasked if out[f"love_interest_cast_by_{mechanism}"] is None
     )
     assert li_none_count == len(li_unasked)
+
+
+def test_one_missing_mechanism_nulls_that_subject_and_the_derived_cost():
+    """``age.band_from``'s all-or-nothing precondition, applied here for
+    a stronger reason: the cost is a MAX, so a missing mechanism can only
+    make it read too low. With named_role and biology missing, a text
+    that is not adaptable at all read cost 1, blocker "pronouns" --
+    "swap freely" -- with nothing in the row saying anything was
+    missed."""
+    answers = _answers(narrator_cast_by_pronouns={"probability": 0.97})
+    del answers["narrator_cast_by_named_role"]
+
+    out = perspective.columns_from(answers)
+    assert out["narrator_gender_cast"] is None
+    assert out["gender_adaptation_cost"] is None
+    assert out["gender_adaptation_blocker"] is None
+    # The four mechanisms that WERE answered still report their own
+    # probabilities: it is the derived number that is withheld.
+    assert out["narrator_cast_by_pronouns"] == 0.97
+    answered = sum(
+        1 for mechanism in ("pronouns", "address", "agreement", "biology")
+        if out[f"narrator_cast_by_{mechanism}"] is not None
+    )
+    assert answered == 4
+
+
+def test_an_errored_mechanism_answer_nulls_the_cost_too():
+    """An answer that came back as an error is not an answer. Same
+    precondition, different cause."""
+    answers = _answers(narrator_cast_by_pronouns={"probability": 0.97})
+    answers["narrator_cast_by_biology"] = Answer(
+        "narrator_cast_by_biology", error="HTTP 503")
+
+    out = perspective.columns_from(answers)
+    assert out["narrator_cast_by_biology"] is None
+    assert out["narrator_gender_cast"] is None
+    assert out["gender_adaptation_cost"] is None
+
+
+def test_an_equal_cost_tie_between_the_subjects_names_the_narrator():
+    """Both subjects cast by the same mechanism at the same cost. The
+    blocker resolves by SUBJECTS order -- narrator first -- which is
+    deterministic, load-bearing for the first driving use case, and was
+    untested. The narrator wins because its casting is the one that
+    always applies: it is never gated."""
+    out = perspective.columns_from(_answers(
+        relational_focus_present={"probability": 0.99},
+        narrator_cast_by_agreement={"probability": 0.9},
+        love_interest_cast_by_agreement={"probability": 0.9},
+    ))
+    assert out["narrator_gender_cast"] == 4
+    assert out["love_interest_gender_cast"] == 4
+    assert out["gender_adaptation_cost"] == 4
+    assert out["gender_adaptation_blocker"] == "agreement"
+    assert perspective.SUBJECTS[0][0] == "narrator", (
+        "the tie-break is SUBJECTS order; pin the order the tie-break "
+        "depends on rather than leaving it incidental"
+    )
+
+
+def test_the_worse_subject_sets_the_cost_and_names_its_own_mechanism():
+    """Not a tie: the love interest is cast by a biological detail (5,
+    not adaptable) while the narrator is cast only by pronouns (1). The
+    teacher must be told the expensive one."""
+    out = perspective.columns_from(_answers(
+        relational_focus_present={"probability": 0.99},
+        narrator_cast_by_pronouns={"probability": 0.9},
+        love_interest_cast_by_biology={"probability": 0.9},
+    ))
+    assert out["narrator_gender_cast"] == 1
+    assert out["love_interest_gender_cast"] == 5
+    assert out["gender_adaptation_cost"] == 5
+    assert out["gender_adaptation_blocker"] == "biology"

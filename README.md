@@ -112,11 +112,17 @@ report null with a reason saying the key is absent. Adding the key enables one f
 it is not a prerequisite for running anything.
 
 To enable it, copy `.env.example` to `.env` and set `JEV_KEY` to a TypeSafe API key. Then ask
-for the group:
+for the group **alongside the ones you already wanted** — `--groups` is the whole list, not an
+addition to a default, so naming `lyrics` on its own gives you the 178 lyric columns and
+no tessitura, no vocal load and no jSymbolic:
 
 ```bash
-venv/bin/python -m songfeat scores/ --groups lyrics -o library.csv
+venv/bin/python -m songfeat scores/ \
+    --groups basic,vocal,jsymbolic,native,lyrics -o library.csv
 ```
+
+That is the profiled library: 391 columns, the 213 analytic ones plus the 178 this group adds.
+`--groups lyrics` alone is useful for one thing only — classifying without re-measuring.
 
 **What it costs.** Under three cents per hundred songs: about 153 questions per song in 8
 batched calls, billed on input tokens only. Answers are cached per question, so a re-run of

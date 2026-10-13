@@ -28,7 +28,7 @@ from typing import Any
 from ...model import Part, Piece
 from ..base import feature
 from .questions import Answer, Kind, Question, register
-from .service import classify_part
+from .service import classify_part, error_summary
 from .vocabulary import SENSITIVE
 
 SUBJECTS: tuple[str, ...] = tuple(slug for slug, _text in SENSITIVE)
@@ -103,9 +103,19 @@ def columns_from(answers: dict[str, Answer]) -> dict[str, Any]:
     ),
     fields=SENSITIVE_FIELDS,
     best_with=("musicxml",),
+    # The one opt-in group: it is neither offline nor free, so an
+    # unfiltered run leaves it out entirely (see FeatureSpec.opt_in).
+    opt_in=True,
 )
 def lyrics_sensitive(part: Part, piece: Piece) -> dict[str, Any]:
     classification = classify_part(part, piece)
     if classification.reason is not None:
         return {name: None for name in SENSITIVE_FIELDS}
-    return columns_from(classification.answers)
+    out = columns_from(classification.answers)
+    # A question that came back as an error nulls its own column; its
+    # reason goes to the record's error channel rather than being
+    # dropped, which would leave a null nothing in the row explains.
+    failures = error_summary(classification.answers, SENSITIVE_FIELDS)
+    if failures is not None:
+        out["_errors"] = {"lyrics_sensitive": failures}
+    return out

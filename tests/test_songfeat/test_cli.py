@@ -362,3 +362,60 @@ def test_without_a_key_the_lyrics_group_says_so_and_the_run_still_succeeds(
     assert code == 0, "a missing optional key is not a failed run"
     assert MISSING_KEY in out.read_text(encoding="utf-8")
     service.reset()
+
+
+def test_a_failed_question_writes_its_status_into_the_row(tmp_path, monkeypatch):
+    """``Answer.error`` carries the only account of a partial failure
+    there is, and every axis used to drop it: the column went null and
+    nothing in the row said why. The spec's failure table requires that
+    an API failure's reason carry the status. It reaches the CSV through
+    the record's error channel, the same one a failed sidecar write uses.
+    """
+    from songfeat import cli
+    from songfeat.features.lyrics import service
+    from songfeat.features.lyrics.client import FakeJevClient
+    from songfeat.features.lyrics.questions import Answer
+
+    monkeypatch.setattr(
+        cli, "_build_jev_client",
+        lambda args: FakeJevClient({
+            "advisory_violence": Answer("advisory_violence", error="HTTP 503"),
+        }),
+    )
+    score = _musicxml_with_lyrics(tmp_path, ["love", "me"])
+    out = tmp_path / "o.csv"
+    code = cli.main([str(score), "--groups", "lyrics", "-o", str(out),
+                     "--lyrics-questions", "core",
+                     "--lyrics-cache", str(tmp_path / "cache.sqlite")])
+    service.reset()
+
+    assert code == 0
+    with open(out, newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["advisory_violence"] == "", "a failed question nulls its column"
+    assert "advisory_violence: HTTP 503" in row["_error_lyrics_advisories"]
+    # The whole-group reason stays empty: one failed question is not a
+    # failed group.
+    assert row["lyrics_classified_undefined_reason"] == ""
+
+
+def test_a_default_run_writes_the_two_hundred_and_thirteen_column_header(tmp_path):
+    """The schema half of the opt-in, end to end: a run that does not
+    name the group writes no lyrics columns, rather than 178 permanently
+    empty ones."""
+    from songfeat import cli
+
+    score = _musicxml_with_lyrics(tmp_path, ["love", "me"])
+    out = tmp_path / "o.csv"
+    assert cli.main([str(score), "-o", str(out)]) == 0
+    with open(out, newline="", encoding="utf-8") as handle:
+        header = next(csv.reader(handle))
+    # ``_error_*`` columns are not schema columns -- they exist only
+    # once a record is built and a borrowed extractor has failed on this
+    # synthetic score -- so the schema half is counted without them.
+    schema_columns = [name for name in header if not name.startswith("_error_")]
+    assert len(schema_columns) == 213
+    assert "theme_love" not in header
+    assert not [name for name in header if name.startswith("lyrics_")]

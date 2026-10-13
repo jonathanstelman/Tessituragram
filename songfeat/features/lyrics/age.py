@@ -6,6 +6,16 @@ Sense Media reaches numeric floors through trained reviewers applying
 developmental guidelines we are not applying; borrowing the number would
 look more precise than it is.
 
+Two different nulls, and the distinction is deliberate.
+``age_band_rule`` reports the rule version whenever a classification
+was ATTEMPTED -- including when the attempt read a missing advisory and
+nulled the band, since the rule consulted is a fact about the
+derivation rather than a verdict about the song. When the group did not
+run at all (a MIDI file, no key, no lyrics) nothing was derived, and
+all three columns are null: a rule version on a row where no text was
+read would be the only column in this group reporting a value about a
+song nobody read.
+
 The band MAY NEVER DEFAULT, in either direction. A reassuring "child"
 about a song nobody read is the one genuinely harmful output this design
 could produce. A conservative "adult" is not the safe alternative: it
@@ -144,7 +154,9 @@ def band_from(columns: dict[str, Any]) -> dict[str, Any]:
         "rule v1 rather than asked of the model, with "
         "``age_band_driver`` naming the dimension that set it and "
         "``age_band_rule`` recording the rule version so a "
-        "re-derivation is traceable. Bands rather than a numeric age "
+        "re-derivation is traceable -- populated whenever the "
+        "derivation was attempted, including when a missing advisory "
+        "nulled the band, and null when the group never ran at all. Bands rather than a numeric age "
         "because no validation data here could justify the difference "
         "between 13 and 14. NEVER DEFAULTS: if any of the nine advisory "
         "columns rule v1 actually reads is missing, the band is null, in "
@@ -157,12 +169,22 @@ def band_from(columns: dict[str, Any]) -> dict[str, Any]:
     ),
     fields=AGE_FIELDS,
     best_with=("musicxml",),
+    # The one opt-in group: it is neither offline nor free, so an
+    # unfiltered run leaves it out entirely (see FeatureSpec.opt_in).
+    opt_in=True,
 )
 def lyrics_age(part: Part, piece: Piece) -> dict[str, Any]:
     from .advisories import columns_from as advisory_columns
 
     classification = classify_part(part, piece)
     if classification.reason is not None:
-        return {"age_band": None, "age_band_driver": None,
-                "age_band_rule": RULE_VERSION}
+        # NOTHING WAS DERIVED, so not even the rule version is reported.
+        # ``age_band_rule`` is a fact about a derivation that happened:
+        # it stays populated when the derivation ran and its inputs were
+        # missing (see ``band_from``), because the rule was still the
+        # rule consulted. Here the group never ran at all -- a MIDI
+        # file, no key, no lyrics -- and a populated column would be the
+        # one column in this group reporting a value about text nobody
+        # read.
+        return dict.fromkeys(AGE_FIELDS)
     return band_from(advisory_columns(classification.answers))

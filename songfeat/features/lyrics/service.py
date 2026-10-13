@@ -8,12 +8,23 @@ NOT_CONFIGURED as the reason.
 
 Answers are memoised on the normalised text's hash, so the eight axis
 features that each want the same part's classification cost one
-classification between them -- not eight.
+classification between them -- not eight. A FAILED classification is
+memoised too, and for the same reason: an exception that is not
+remembered is an exception raised, and paid for, eight times. Before
+that was fixed a single raising client cost 7 ``ask()`` calls for one
+part -- up to 56 HTTP calls per song on a full run -- and still
+reported no reason at all.
+
+``error_summary`` is the other half of not losing a reason: an answer
+that came back as an error nulls its own column, and the axis reports
+*why* through the record's error channel rather than leaving a bare
+``None``.
 """
 
 from __future__ import annotations
 
 import datetime as _datetime
+import os
 from dataclasses import dataclass, field
 
 from ...model import Part, Piece
@@ -41,6 +52,10 @@ EMPTY_AFTER_REASSEMBLY = (
     "{verse_count} verse(s) of nothing but blank text; there is no song "
     "here to classify"
 )
+CLASSIFICATION_FAILED = (
+    "the lyric classifier could not be reached or did not answer: {detail}"
+)
+REDACTED = "[redacted]"
 TEXT_TOO_LONG = (
     "the lyric text exceeds the model's context window, so it was "
     "refused rather than truncated: a classification of the first part of "
@@ -115,6 +130,68 @@ def _validate(question: Question, answer: Answer) -> Answer:
     return answer
 
 
+def error_summary(answers: dict[str, Answer],
+                  fields: tuple[str, ...]) -> str | None:
+    """One line naming every question of this axis that failed, and why.
+
+    ``Answer.error`` carries the only account of a partial failure
+    there is -- "HTTP 503", "no score returned", "answer 'androgynous'
+    is not a declared option" -- and the spec requires an API failure's
+    reason to carry the status and an unparseable answer's reason to
+    name the question. Every axis used to map such an answer to a bare
+    ``None`` and drop the error, which left a null with no reason
+    anywhere in the row. The axes now hand this string to the record's
+    error channel (``_errors``), the same one ``pipeline`` already uses
+    for a failed sidecar write, so it surfaces as ``_error_<axis>``.
+
+    One entry per axis rather than one per question: 153 questions must
+    not be able to add 153 columns to a table. Returns ``None`` when
+    nothing failed, so a caller can skip the key entirely.
+
+    Ordered by ``fields``, not by dict order, so the same failures
+    always produce the same string -- a reason column that reshuffles
+    between runs is a diff nobody can read.
+    """
+    failed = [
+        (column, answers[column].error)
+        for column in fields
+        if column in answers and answers[column].error
+    ]
+    if not failed:
+        return None
+    detail = "; ".join(f"{column}: {error}" for column, error in failed)
+    return f"{len(failed)} question(s) failed: {detail}"
+
+
+def _scrub(text: str) -> str:
+    """The same text with the API key removed, if it is in there.
+
+    The key is read once from the environment and goes in a header; no
+    code here puts it anywhere else. This is the belt to that braces:
+    ``failure_reason`` is built from an exception raised by code we do
+    not own (httpx, the SDK, the server's own message), the reason it
+    builds lands in a user-visible column, and a key that reached a CSV
+    could not be un-leaked. Cheap, and it cannot be wrong in the
+    dangerous direction.
+    """
+    key = os.environ.get("JEV_KEY")
+    return text.replace(key, REDACTED) if key else text
+
+
+def failure_reason(exc: BaseException) -> str:
+    """The user-visible reason for a classification that raised.
+
+    Names the exception type and its message, because "something went
+    wrong" in a reason column is no better than the null reason this
+    replaces -- a budget stop, a malformed response and a timeout need
+    different actions from the person reading the row. Scrubbed of the
+    API key (see ``_scrub``), and never carrying a traceback or a file
+    path of ours.
+    """
+    detail = _scrub(f"{type(exc).__name__}: {exc}".strip().rstrip(":").strip())
+    return CLASSIFICATION_FAILED.format(detail=detail)
+
+
 def classify_part(part: Part, piece: Piece) -> Classification:
     """This part's answers, or a Classification carrying only a reason."""
     if _client is None:
@@ -156,11 +233,50 @@ def classify_part(part: Part, piece: Piece) -> Classification:
             dates.append(when)
 
     if to_ask:
+        try:
+            returned = _client.ask(assembled.text, to_ask)
+        except Exception as exc:  # noqa: BLE001 - see below
+            # Anything raised in here -- a budget stop, a malformed 200,
+            # an httpx fault, a bug of ours -- becomes ONE failed
+            # classification with a readable reason, MEMOISED like a
+            # successful one. Without the memo each of the eight axis
+            # features re-enters this function and re-attempts the
+            # call, so one song cost seven more attempts (up to 56 HTTP
+            # calls on a full run) and still reported a null reason.
+            # Answers already paid for before the raise are banked on
+            # the way out: BudgetExceeded carries them.
+            _bank(assembled.sha256, to_ask, getattr(exc, "answers", ()), today)
+            return _remember(assembled.sha256,
+                             Classification(reason=failure_reason(exc)))
+
         by_id = {question.id: question for question in to_ask}
-        for answer in _client.ask(assembled.text, to_ask):
-            validated = _validate(by_id[answer.question_id], answer)
-            answers[answer.question_id] = validated
+        for answer in returned:
+            question = by_id.get(answer.question_id)
+            if question is None:
+                # An id we never asked about. No column reads it, but it
+                # is kept (as an error, never as a value) rather than
+                # raising KeyError and nulling all 178 columns over one
+                # stray key.
+                answers[answer.question_id] = Answer(
+                    answer.question_id,
+                    error="the classifier answered a question that was not asked",
+                )
+                continue
+            answers[answer.question_id] = _validate(question, answer)
+        for question in to_ask:
+            # A question the client omitted entirely: its own column
+            # nulls with its own reason, exactly as a batch failure
+            # does, instead of a KeyError taking the group down.
+            answers.setdefault(question.id, Answer(
+                question.id,
+                error="the classifier returned no answer for this question",
+            ))
         if _cache:
+            resolved = getattr(_client, "resolved_model", None)
+            if resolved:
+                # Before the write, so a roll-forward discards the old
+                # version's rows and this batch lands in the clear.
+                _cache.note_resolved_model(_client.model, resolved)
             _cache.put_many(
                 assembled.sha256, _client.model,
                 [(question, answers[question.id]) for question in to_ask],
@@ -170,7 +286,10 @@ def classify_part(part: Part, piece: Piece) -> Classification:
 
     result = Classification(
         answers=answers,
-        model=_client.model,
+        # The concrete model that answered, when the server reported
+        # one; the alias we asked with only as a fallback. An alias
+        # cannot tell two databases built a year apart apart.
+        model=getattr(_client, "resolved_model", None) or _client.model,
         question_set=SET_VERSIONS[_set_name],
         # The oldest contributing date, so provenance describes when
         # these answers were actually made rather than when they were
@@ -178,5 +297,34 @@ def classify_part(part: Part, piece: Piece) -> Classification:
         classified_at=min(dates) if dates else today,
         reason=None,
     )
-    _memo[assembled.sha256] = result
+    return _remember(assembled.sha256, result)
+
+
+def _remember(text_hash: str, result: Classification) -> Classification:
+    """Memoise one part's classification -- success OR failure.
+
+    Memoising the failure is the point: eight axis features ask for the
+    same part's classification, and a failure that is not remembered is
+    a failure attempted eight times.
+    """
+    _memo[text_hash] = result
     return result
+
+
+def _bank(text_hash: str, asked, answers, when: str) -> None:
+    """Cache whatever completed before a failure propagated.
+
+    Those answers were paid for. ``put_many`` drops errored ones, so
+    only real answers land. Silent when there is no cache or nothing
+    completed.
+    """
+    if _cache is None or not answers:
+        return
+    by_id = {question.id: question for question in asked}
+    pairs = [
+        (by_id[answer.question_id], answer)
+        for answer in answers
+        if answer.question_id in by_id
+    ]
+    if pairs:
+        _cache.put_many(text_hash, _client.model, pairs, when)

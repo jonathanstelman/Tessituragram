@@ -59,6 +59,9 @@ def sidecar_name(source_path: str | None, part_index: int = 0) -> str | None:
     ),
     fields=TEXT_FIELDS,
     best_with=("musicxml",),
+    # The one opt-in group: it is neither offline nor free, so an
+    # unfiltered run leaves it out entirely (see FeatureSpec.opt_in).
+    opt_in=True,
 )
 def lyrics_text(part: Part, piece: Piece) -> dict[str, Any]:
     assembled = assemble_text(part)
@@ -114,15 +117,22 @@ PROVENANCE_FIELDS = (
         "whole classified group is null: no key, no lyrics, lyrics that "
         "reassembled to nothing, or text too long for the model's context "
         "window. A single failed question or batch does NOT null this "
-        "group -- that failure stays on its own column via that answer's "
-        "error, and every other column keeps its value. A sink may "
-        "decline to write these columns, but the record always has them."
+        "group: that question's own column goes null and every other "
+        "column keeps its value, and the reason -- the HTTP status, or "
+        "which answer could not be parsed -- is reported in the "
+        "record's ``_error_lyrics_<axis>`` entry for the axis that owns "
+        "the column, NOT in this column, which carries only a "
+        "whole-group reason. A sink may decline to write these columns, "
+        "but the record always has them."
     ),
     fields=PROVENANCE_FIELDS,
     best_with=("musicxml",),
+    # The one opt-in group: it is neither offline nor free, so an
+    # unfiltered run leaves it out entirely (see FeatureSpec.opt_in).
+    opt_in=True,
 )
 def lyrics_provenance(part: Part, piece: Piece) -> dict[str, Any]:
-    from .service import classify_part
+    from .service import classify_part, error_summary
 
     classification = classify_part(part, piece)
     if classification.reason is not None:
@@ -130,10 +140,14 @@ def lyrics_provenance(part: Part, piece: Piece) -> dict[str, Any]:
             "lyrics_classified_undefined_reason": classification.reason,
         }
     answer = classification.answers.get("lyrics_language")
-    return {
+    out: dict[str, Any] = {
         "lyrics_language": answer.choice if answer and not answer.error else None,
         "clf_model": classification.model,
         "clf_question_set": classification.question_set,
         "clf_classified_at": classification.classified_at,
         "lyrics_classified_undefined_reason": None,
     }
+    failures = error_summary(classification.answers, PROVENANCE_FIELDS)
+    if failures is not None:
+        out["_errors"] = {"lyrics_provenance": failures}
+    return out
