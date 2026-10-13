@@ -12,7 +12,7 @@ import os
 from music21 import chord as m21_chord
 from music21 import converter, instrument, key, meter, stream, tempo
 
-from .model import KeyMark, MeterMark, Note, Part, Piece, TempoMark
+from .model import KeyMark, MeterMark, Note, Part, Piece, Syllable, TempoMark
 
 #: Extensions music21 can read that we advertise support for.
 SUPPORTED_EXTENSIONS: dict[str, str] = {
@@ -102,7 +102,45 @@ def _collect_notes(
             duration_seconds = (
                 quarters_to_seconds(onset + duration, tempo_map) - onset_seconds
             )
-            lyric = getattr(element, "lyric", None) or None
+            # Extract syllables, expanding composite lyrics (elisions) into components
+            syllables_list = []
+            for item in getattr(element, "lyrics", ()):
+                verse_number = int(getattr(item, "number", 1) or 1)
+                # Check if this is a composite lyric (has elisions)
+                if getattr(item, "isComposite", False):
+                    # Emit one syllable per component with component's own syllabic marker
+                    for component in getattr(item, "components", []):
+                        component_text = getattr(component, "text", None)
+                        if component_text:
+                            syllables_list.append(
+                                Syllable(
+                                    number=verse_number,
+                                    text=component_text,
+                                    syllabic=getattr(component, "syllabic", None),
+                                    extend=bool(getattr(component, "extend", False)),
+                                )
+                            )
+                else:
+                    # Non-composite lyric: single syllable
+                    if getattr(item, "text", None):
+                        syllables_list.append(
+                            Syllable(
+                                number=verse_number,
+                                text=item.text,
+                                syllabic=getattr(item, "syllabic", None),
+                                extend=bool(getattr(item, "extend", False)),
+                            )
+                        )
+            syllables = tuple(syllables_list)
+            # Extract lyric for backward compatibility
+            lyric = None
+            if syllables:
+                # Find the lowest-numbered verse (usually verse 1, but may start at 2+)
+                lowest_verse = min(syllables, key=lambda s: s.number)
+                lyric = lowest_verse.text if lowest_verse else None
+            else:
+                # Fallback to music21's lyric property only when no syllables
+                lyric = getattr(element, "lyric", None) or None
             pitches = (
                 element.pitches
                 if isinstance(element, m21_chord.Chord)
@@ -119,6 +157,7 @@ def _collect_notes(
                         duration_seconds=duration_seconds,
                         lyric=lyric,
                         is_chord_member=len(pitches) > 1,
+                        lyrics=syllables,
                     )
                 )
         collected.sort(key=lambda n: (n.onset, n.midi))

@@ -8,7 +8,7 @@ import sys
 from typing import Iterable
 
 from .features import registry, schema
-from .loaders import SUPPORTED_EXTENSIONS
+from .loaders import SUPPORTED_EXTENSIONS, load
 from .pipeline import run
 from .sinks.base import MemorySink
 from .sinks.files import CsvSink, JsonSink, JsonlSink
@@ -85,7 +85,12 @@ def print_profile(records) -> None:
     the input format lacks what the feature needs (design spec: availability
     is "recorded in feature metadata and surfaced by profile").
     """
-    from .profile import correlated_pairs, profile_records, weak_for_format
+    from .profile import (
+        correlated_pairs,
+        profile_records,
+        unassessable_columns,
+        weak_for_format,
+    )
 
     profiles = profile_records(records)
     dead = [p for p in profiles if p.is_constant or p.null_rate == 1.0]
@@ -117,6 +122,16 @@ def print_profile(records) -> None:
         print(f"\n{len(pairs)} correlated pairs at |r| >= 0.95:")
         for left, right, r in sorted(pairs, key=lambda p: -abs(p[2]))[:25]:
             print(f"  {left:<36}{right:<36}{r:>8.3f}")
+
+    # Distinct from "dead": a column can vary and still have too few known
+    # values to say anything about its redundancy. Left out of the pairs
+    # above rather than reported as "not correlated" -- this is where that
+    # "we could not tell" surfaces instead of vanishing.
+    unassessable = unassessable_columns([r.features for r in records])
+    if unassessable:
+        print(f"\n{len(unassessable)} columns have too few known values to assess for redundancy:")
+        for name in unassessable:
+            print(f"  {name}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -174,6 +189,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--validate-lyrics", choices=("dev", "held-out"), default=None,
+        help=(
+            "compare the lyric classifier against the committed labels for "
+            "the given split and print per-column agreement instead of "
+            "writing records; the path argument is the corpus directory. "
+            "The held-out split is meant to be run once, at the end"
+        ),
+    )
+    parser.add_argument(
         "--drop-trailing-marker",
         action="store_true",
         help=(
@@ -181,8 +205,62 @@ def build_parser() -> argparse.ArgumentParser:
             "Tessituragram corpus appends to every file"
         ),
     )
+    parser.add_argument(
+        "--lyrics-questions", choices=("core", "full"), default="full",
+        help=(
+            "which classifier question set to ask: 'full' is 153 questions "
+            "in 8 calls per song; 'core' is 13 in one call, about 8%% of "
+            "the cost, for development. The set used is recorded in the "
+            "clf_question_set column, so a lean run cannot be mistaken "
+            "for a complete one"
+        ),
+    )
+    parser.add_argument(
+        "--lyrics-estimate", action="store_true",
+        help=(
+            "print the number of classifier calls, questions and input "
+            "tokens the given inputs would need, then exit without "
+            "calling anything or writing records"
+        ),
+    )
+    parser.add_argument(
+        "--lyrics-max-calls", type=int, default=None, metavar="N",
+        help=(
+            "once this many classifier calls have been made in this run, "
+            "every further one -- for the file it was needed for, and any "
+            "file still to come -- fails rather than being made; the run "
+            "itself still finishes, with those files reported as "
+            "failures. A guard against a glob that matched more than you "
+            "meant"
+        ),
+    )
+    parser.add_argument(
+        "--lyrics-cache", default=None, metavar="PATH",
+        help=(
+            "where the per-question answer cache lives (default: "
+            f"{os.path.join('.songfeat', 'jev-cache.sqlite')}, i.e. "
+            "cache.DEFAULT_PATH); pass a throwaway path during "
+            "development so an answer cache built while iterating never "
+            "mixes with the one a real run relies on"
+        ),
+    )
     parser.add_argument("-q", "--quiet", action="store_true", help="suppress progress")
     return parser
+
+
+def _build_jev_client(args):
+    """The configured client, or None when no key is available.
+
+    A missing key is not an error: it means one feature group reports
+    null with a reason, and the rest of the run proceeds. The key is
+    read here, once, from the environment -- never from a CLI argument,
+    where it would land in shell history.
+    """
+    key = os.environ.get("JEV_KEY")
+    if not key:
+        return None
+    from .features.lyrics.client import HttpJevClient
+    return HttpJevClient(key, max_calls=args.lyrics_max_calls)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -207,8 +285,52 @@ def main(argv: list[str] | None = None) -> int:
         print_validation(args.paths[0], GROUND_TRUTH_XLSX)
         return 0
 
+    if args.validate_lyrics:
+        if not args.paths:
+            build_parser().error("--validate-lyrics requires a corpus directory")
+        from .features.lyrics.cache import DEFAULT_PATH, AnswerCache
+        from .features.lyrics.client import MISSING_KEY
+        from .features.lyrics import service
+        from .validation_lyrics import print_agreement
+
+        client = _build_jev_client(args)
+        service.configure(
+            client=client,
+            cache=AnswerCache(args.lyrics_cache or DEFAULT_PATH),
+            question_set_name=args.lyrics_questions,
+            unavailable_reason=MISSING_KEY if client is None else None,
+        )
+        print_agreement(args.paths[0], args.validate_lyrics)
+        return 0
+
     if not args.paths:
         build_parser().error("no input paths given")
+
+    if args.lyrics_estimate:
+        from .features.lyrics.assemble import assemble_text
+        from .features.lyrics.client import estimate
+        from .features.lyrics.questions import question_set
+
+        files = iter_score_files(args.paths, recursive=not args.no_recursive)
+        questions = question_set(args.lyrics_questions)
+        calls = questions_asked = tokens = 0
+        classifiable = 0
+        for path in files:
+            piece = load(path, drop_trailing_marker=args.drop_trailing_marker)
+            for part in piece.parts:
+                assembled = assemble_text(part)
+                if assembled is None:
+                    continue
+                classifiable += 1
+                predicted = estimate(questions, assembled.text)
+                calls += predicted.calls
+                questions_asked += predicted.questions
+                tokens += predicted.input_tokens
+        print(f"{len(files)} file(s), {classifiable} part(s) with lyrics")
+        print(f"{calls} calls, {questions_asked} questions, "
+              f"{tokens} input tokens")
+        print(f"question set: {args.lyrics_questions}")
+        return 0
 
     files = iter_score_files(args.paths, recursive=not args.no_recursive)
     if not files:
@@ -223,6 +345,27 @@ def main(argv: list[str] | None = None) -> int:
         if not args.quiet and total > 1:
             print(f"  [{counter['n']}/{total}] {os.path.basename(path)}", file=sys.stderr)
 
+    lyrics_active = groups_filter is not None and "lyrics" in groups_filter
+    if lyrics_active:
+        from .features.lyrics.cache import DEFAULT_PATH, AnswerCache
+        from .features.lyrics.client import MISSING_KEY
+        from .features.lyrics import service
+
+        client = _build_jev_client(args)
+        service.configure(
+            client=client,
+            cache=AnswerCache(args.lyrics_cache or DEFAULT_PATH),
+            question_set_name=args.lyrics_questions,
+            # The group WAS requested; a missing key is a different
+            # fact than "nobody asked for this group", so it gets its
+            # own reason rather than falling back to NOT_CONFIGURED.
+            unavailable_reason=MISSING_KEY if client is None else None,
+        )
+
+    sidecar_dir = None
+    if args.out and lyrics_active:
+        sidecar_dir = os.path.join(os.path.dirname(args.out) or ".", "lyrics")
+
     sink = MemorySink() if args.profile else make_sink(args.out, args.format)
     count, failures = run(
         files,
@@ -230,6 +373,7 @@ def main(argv: list[str] | None = None) -> int:
         groups_filter,
         drop_trailing_marker=args.drop_trailing_marker,
         on_progress=progress,
+        sidecar_dir=sidecar_dir,
     )
 
     if args.profile:

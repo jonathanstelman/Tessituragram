@@ -201,6 +201,39 @@ def test_the_docstring_warns_that_a_re_run_duplicates_rows():
     assert "source_path" in text and "part_index" in text, text
 
 
+def test_a_sheets_sink_may_decline_to_write_the_provenance_columns():
+    """Provenance is mandatory on the RECORD; a sink may omit it. That way
+    it can be left out of a teacher's spreadsheet deliberately, but never
+    lost by accident."""
+    worksheet = FakeWorksheet()
+    schema = SCHEMA + ["clf_model", "clf_question_set"]
+    with sink_with(worksheet, exclude=("clf_model", "clf_question_set")) as sink:
+        sink.open(schema)
+        sink.write(FeatureRecord(
+            source_path="song.mid", source_format="midi", part_index=0,
+            features={
+                "min_midi": 60, "clf_model": "fake/jev-1",
+                "clf_question_set": "full@v1",
+            },
+        ))
+    assert worksheet.rows[0] == SCHEMA
+    assert worksheet.rows[1] == ["song.mid", 0, 60]
+    assert "fake/jev-1" not in worksheet.rows[1]
+    assert "full@v1" not in worksheet.rows[1]
+
+
+def test_exclusion_applies_before_the_leading_columns_header_check():
+    """An existing sheet written without provenance has a header that is
+    the narrowed schema, not the full one. The exclusion must apply
+    before open()'s leading-columns comparison, or re-opening such a
+    sheet with the full (unexcluded) schema would wrongly raise."""
+    worksheet = FakeWorksheet([SCHEMA])
+    with sink_with(worksheet, exclude=("clf_model",)) as sink:
+        sink.open(SCHEMA + ["clf_model"])  # must not raise
+        sink.write(record(0))
+    assert worksheet.rows.count(SCHEMA) == 1
+
+
 def test_a_re_run_really_does_append_a_second_time():
     """Proves the documented hazard is real, so the docstring is not
     describing something that cannot happen."""

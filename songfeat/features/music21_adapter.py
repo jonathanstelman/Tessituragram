@@ -147,7 +147,13 @@ def _as_score(part: Part, piece: Piece) -> stream.Score:
         # every part of every aria because of this -- which looks like a
         # measurement and is not one. The corpus carries no lyrics, so it
         # will still read 0.0 here; on lyric-bearing input it is now correct.
-        if note.lyric:
+        # Relay all verses in ascending order rather than just the convenience field.
+        if note.lyrics:
+            # Build text from all verses in ascending verse number order
+            verses_by_number = sorted(note.lyrics, key=lambda s: s.number)
+            element.lyric = "\n".join(s.text for s in verses_by_number)
+        elif note.lyric:
+            # Fallback for notes without the lyrics field
             element.lyric = note.lyric
         line.insert(note.onset, element)
     return stream.Score([line])

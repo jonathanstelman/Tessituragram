@@ -1,4 +1,4 @@
-from songfeat.model import Note, Part, Piece
+from songfeat.model import Note, Part, Piece, Syllable
 
 
 def make_piece() -> Piece:
@@ -31,3 +31,28 @@ def test_part_pitch_extremes_are_not_pooled():
     """The bug this restructure exists to prevent."""
     piece = make_piece()
     assert min(n.midi for n in piece.parts[0].notes) == 60  # not 36
+
+
+def test_note_carries_every_verse_and_its_syllabic_marker():
+    note = Note(
+        midi=60, onset=0.0, duration=1.0, part=0,
+        lyric="Er",
+        lyrics=(
+            Syllable(number=1, text="Er", syllabic="begin", extend=False),
+            Syllable(number=2, text="Wer", syllabic="single", extend=False),
+        ),
+    )
+    assert note.lyric == "Er", "lyric field is lowest-numbered verse (verse 1)"
+    assert len(note.lyrics) == 2
+    assert note.lyrics[1].number == 2
+    assert note.lyrics[0].syllabic == "begin"
+
+
+def test_note_without_lyrics_has_an_empty_tuple_not_none():
+    """A tuple keeps Note hashable, which frozen-dataclass equality relies on."""
+    note = Note(midi=60, onset=0.0, duration=1.0, part=0)
+    assert note.lyrics == ()
+    # Verify equal Notes collapse in a set (frozen-dataclass value equality)
+    twin = Note(midi=60, onset=0.0, duration=1.0, part=0)
+    assert note == twin
+    assert len({note, twin}) == 1, "equal Notes must collapse in a set"

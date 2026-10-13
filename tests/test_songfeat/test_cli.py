@@ -108,6 +108,12 @@ def test_parser_defaults():
     args = build_parser().parse_args([ARIA])
     assert args.drop_trailing_marker is False
     assert args.format is None
+    assert args.lyrics_cache is None, (
+        "None, not cache.DEFAULT_PATH itself: cli.py falls back to "
+        "DEFAULT_PATH only at the point of use, so a test that sets "
+        "JEV_KEY but never touches --lyrics-cache can never be fooled "
+        "into writing the real shared cache"
+    )
 
 
 def test_profile_flag_reports_degeneracy_and_weak_columns(capsys):
@@ -144,3 +150,272 @@ def test_sheets_help_warns_that_a_re_run_duplicates_rows():
     text = build_parser().format_help()
     assert "deduplicate" in text, text
     assert "source_path + part_index" in text, text
+
+
+def _musicxml_with_lyrics(tmp_path, words):
+    """A one-part score with one ``single`` syllable per word.
+
+    ``music21``'s ``note.lyric = word`` setter creates exactly that: a
+    single Lyric with ``syllabic='single'`` and ``number=1`` (verified
+    directly against music21's own Note.lyrics before writing this
+    helper), which is what the loader and ``assemble_text`` turn back
+    into ``" ".join(words)``.
+    """
+    from music21 import note, stream
+
+    part = stream.Part()
+    part.id = "Voice"
+    for word in words:
+        pitch = note.Note("C4", quarterLength=1.0)
+        pitch.lyric = word
+        part.append(pitch)
+    score = stream.Score()
+    score.insert(0, part)
+    out = tmp_path / "song.musicxml"
+    score.write("musicxml", fp=str(out))
+    return out
+
+
+def test_lyrics_estimate_prints_a_price_and_makes_no_call(capsys, tmp_path):
+    """--lyrics-estimate answers 'what will this cost' before spending it."""
+    from songfeat import cli
+
+    score = _musicxml_with_lyrics(tmp_path, ["love", "me"])
+    code = cli.main([str(score), "--groups", "lyrics", "--lyrics-estimate"])
+    printed = capsys.readouterr().out
+
+    assert code == 0
+    assert "8 calls" in printed
+    assert "153 questions" in printed
+    assert "JEV_KEY" not in printed, "the estimate needs no key and must not demand one"
+
+
+def test_a_default_run_with_no_groups_configures_nothing(tmp_path, monkeypatch):
+    """The controller's binding ruling: ``lyrics`` is opt-in in the
+    strongest terms. A default run (no --groups, or a --groups that
+    does not name 'lyrics') must never call service.configure, even
+    when JEV_KEY is set -- configuring would build a real client and
+    start spending money the moment the env var exists."""
+    from songfeat import cli
+    from songfeat.features.lyrics import service
+
+    monkeypatch.setenv("JEV_KEY", "sk-not-a-real-key")
+    service.reset()
+    score = _musicxml_with_lyrics(tmp_path, ["love", "me"])
+    out = tmp_path / "o.csv"
+
+    code = cli.main([str(score), "-o", str(out)])
+
+    assert code == 0
+    assert service.is_configured() is False, (
+        "a default run must leave the lyrics service unconfigured"
+    )
+
+
+def test_a_non_lyrics_groups_filter_also_configures_nothing(tmp_path, monkeypatch):
+    from songfeat import cli
+    from songfeat.features.lyrics import service
+
+    monkeypatch.setenv("JEV_KEY", "sk-not-a-real-key")
+    service.reset()
+    score = _musicxml_with_lyrics(tmp_path, ["love", "me"])
+    out = tmp_path / "o.csv"
+
+    code = cli.main([str(score), "--groups", "basic", "-o", str(out)])
+
+    assert code == 0
+    assert service.is_configured() is False
+
+
+def test_lyrics_estimate_never_builds_a_client(tmp_path, monkeypatch):
+    """No network call: proven by making client construction itself fail
+    loudly if the estimate path ever reaches it, rather than merely
+    checking the printed text."""
+    from songfeat import cli
+
+    def _boom(args):
+        raise AssertionError("--lyrics-estimate must never build a client")
+
+    monkeypatch.setattr(cli, "_build_jev_client", _boom)
+    score = _musicxml_with_lyrics(tmp_path, ["love", "me"])
+    code = cli.main([str(score), "--groups", "lyrics", "--lyrics-estimate"])
+    assert code == 0
+
+
+def test_lyrics_estimate_call_count_matches_a_real_run(tmp_path, capsys):
+    """A prediction nobody checks against reality is a number, not an
+    estimate: parse the call count --lyrics-estimate printed for this
+    input, then run the same lyric through a real (fake-backed)
+    classification and assert the two numbers are equal."""
+    from songfeat import cli
+    from songfeat.features.lyrics import service
+    from songfeat.features.lyrics.cache import AnswerCache
+    from songfeat.features.lyrics.client import FakeJevClient
+
+    score = _musicxml_with_lyrics(tmp_path, ["love", "me"])
+
+    code = cli.main([str(score), "--groups", "lyrics", "--lyrics-estimate"])
+    assert code == 0
+    printed = capsys.readouterr().out
+    predicted_calls = int(printed.split(" calls,", 1)[0].splitlines()[-1])
+
+    client = FakeJevClient({})
+    service.configure(
+        client=client,
+        cache=AnswerCache(str(tmp_path / "cache.sqlite")),
+        question_set_name="full",
+    )
+    from songfeat.pipeline import run
+    from songfeat.sinks.base import MemorySink
+    run([str(score)], MemorySink(), groups_filter=["lyrics"])
+    service.reset()
+
+    assert predicted_calls > 0, "the estimate must have found lyrics to count"
+    assert client.calls_made == predicted_calls
+
+
+def test_lyrics_questions_core_is_recorded_in_the_output(tmp_path, monkeypatch):
+    from songfeat import cli
+    from songfeat.features.lyrics import service
+    from songfeat.features.lyrics.client import FakeJevClient
+    from songfeat.features.lyrics.questions import Answer
+
+    monkeypatch.setattr(
+        cli, "_build_jev_client",
+        lambda args: FakeJevClient({"theme_love": Answer("theme_love", probability=0.9)}),
+    )
+    score = _musicxml_with_lyrics(tmp_path, ["love", "me"])
+    out = tmp_path / "o.csv"
+    code = cli.main([str(score), "--groups", "lyrics", "-o", str(out),
+                     "--lyrics-questions", "core",
+                     "--lyrics-cache", str(tmp_path / "cache.sqlite")])
+
+    assert code == 0
+    body = out.read_text(encoding="utf-8")
+    assert "core@v1" in body
+    service.reset()
+    assert (tmp_path / "cache.sqlite").exists(), (
+        "the cache should have been built at the path --lyrics-cache named"
+    )
+
+
+def test_lyrics_cache_flag_keeps_the_repo_root_clean(tmp_path, monkeypatch):
+    """Regression for fix round 1, finding 3: cli.py used to hardcode
+    cache.DEFAULT_PATH, so every test driving cli.main with the lyrics
+    group wrote a real, mutable cache into .songfeat/ at the repo root
+    -- a 20KB file was found sitting there, built by the suite itself.
+    A run that names its own cache path must never touch that default
+    location at all."""
+    from songfeat import cli
+    from songfeat.features.lyrics import service
+    from songfeat.features.lyrics.cache import DEFAULT_PATH
+    from songfeat.features.lyrics.client import FakeJevClient
+    from songfeat.features.lyrics.questions import Answer
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        cli, "_build_jev_client",
+        lambda args: FakeJevClient({"theme_love": Answer("theme_love", probability=0.9)}),
+    )
+    score = _musicxml_with_lyrics(tmp_path, ["love", "me"])
+    out = tmp_path / "o.csv"
+    own_cache = tmp_path / "my-cache.sqlite"
+    code = cli.main([str(score), "--groups", "lyrics", "-o", str(out),
+                     "--lyrics-cache", str(own_cache)])
+
+    assert code == 0
+    assert own_cache.exists()
+    assert not (tmp_path / DEFAULT_PATH).exists(), (
+        "naming a cache path must not also touch the default location"
+    )
+    service.reset()
+
+
+def test_an_unknown_question_set_is_rejected_by_the_parser(capsys):
+    from songfeat import cli
+
+    with pytest.raises(SystemExit):
+        cli.main(["x.musicxml", "--lyrics-questions", "cheap"])
+
+
+def test_without_a_key_the_lyrics_group_says_so_and_the_run_still_succeeds(
+    tmp_path, monkeypatch, capsys
+):
+    """A missing optional key is not an error: the run still succeeds and
+    the reason is ``client.MISSING_KEY`` -- distinct from
+    ``service.NOT_CONFIGURED``, which both mention "JEV_KEY" but mean
+    different things ("you asked for this group but have no key" versus
+    "nobody asked for this group"). cli.py now tells ``service.configure``
+    which one applies (fix round 1), so the stronger, exact check is
+    restored here rather than the earlier substring-only version.
+    """
+    from songfeat import cli
+    from songfeat.features.lyrics import service
+    from songfeat.features.lyrics.client import MISSING_KEY
+
+    monkeypatch.delenv("JEV_KEY", raising=False)
+    score = _musicxml_with_lyrics(tmp_path, ["love"])
+    out = tmp_path / "o.csv"
+    code = cli.main([str(score), "--groups", "lyrics", "-o", str(out),
+                     "--lyrics-cache", str(tmp_path / "cache.sqlite")])
+
+    assert code == 0, "a missing optional key is not a failed run"
+    assert MISSING_KEY in out.read_text(encoding="utf-8")
+    service.reset()
+
+
+def test_a_failed_question_writes_its_status_into_the_row(tmp_path, monkeypatch):
+    """``Answer.error`` carries the only account of a partial failure
+    there is, and every axis used to drop it: the column went null and
+    nothing in the row said why. The spec's failure table requires that
+    an API failure's reason carry the status. It reaches the CSV through
+    the record's error channel, the same one a failed sidecar write uses.
+    """
+    from songfeat import cli
+    from songfeat.features.lyrics import service
+    from songfeat.features.lyrics.client import FakeJevClient
+    from songfeat.features.lyrics.questions import Answer
+
+    monkeypatch.setattr(
+        cli, "_build_jev_client",
+        lambda args: FakeJevClient({
+            "advisory_violence": Answer("advisory_violence", error="HTTP 503"),
+        }),
+    )
+    score = _musicxml_with_lyrics(tmp_path, ["love", "me"])
+    out = tmp_path / "o.csv"
+    code = cli.main([str(score), "--groups", "lyrics", "-o", str(out),
+                     "--lyrics-questions", "core",
+                     "--lyrics-cache", str(tmp_path / "cache.sqlite")])
+    service.reset()
+
+    assert code == 0
+    with open(out, newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["advisory_violence"] == "", "a failed question nulls its column"
+    assert "advisory_violence: HTTP 503" in row["_error_lyrics_advisories"]
+    # The whole-group reason stays empty: one failed question is not a
+    # failed group.
+    assert row["lyrics_classified_undefined_reason"] == ""
+
+
+def test_a_default_run_writes_the_two_hundred_and_thirteen_column_header(tmp_path):
+    """The schema half of the opt-in, end to end: a run that does not
+    name the group writes no lyrics columns, rather than 178 permanently
+    empty ones."""
+    from songfeat import cli
+
+    score = _musicxml_with_lyrics(tmp_path, ["love", "me"])
+    out = tmp_path / "o.csv"
+    assert cli.main([str(score), "-o", str(out)]) == 0
+    with open(out, newline="", encoding="utf-8") as handle:
+        header = next(csv.reader(handle))
+    # ``_error_*`` columns are not schema columns -- they exist only
+    # once a record is built and a borrowed extractor has failed on this
+    # synthetic score -- so the schema half is counted without them.
+    schema_columns = [name for name in header if not name.startswith("_error_")]
+    assert len(schema_columns) == 213
+    assert "theme_love" not in header
+    assert not [name for name in header if name.startswith("lyrics_")]

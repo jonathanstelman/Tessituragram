@@ -73,6 +73,49 @@ def test_json_sink_writes_a_single_array(tmp_path):
     assert isinstance(payload, list) and len(payload) == 2
 
 
+def test_a_csv_sink_may_decline_to_write_the_provenance_columns(tmp_path):
+    """Provenance is mandatory on the RECORD; a sink may omit it. That way
+    it can be left out of a teacher's spreadsheet deliberately, but never
+    lost by accident.
+
+    Writes a real FeatureRecord rather than a bare dict: CsvSink.write
+    takes a FeatureRecord like every other sink, and the schema here
+    includes every identity column flat() produces, so none of them land
+    in close()'s "extra" and blur the pinned header below.
+    """
+    path = tmp_path / "o.csv"
+    schema = list(FeatureRecord.IDENTITY) + ["clf_model", "clf_question_set", "theme_love"]
+    sink = CsvSink(str(path), exclude=("clf_model", "clf_question_set"))
+    sink.open(schema)
+    sink.write(FeatureRecord(
+        source_path="song.mid", source_format="midi", part_index=0,
+        features={"clf_model": "fake/jev-1", "clf_question_set": "full@v1",
+                  "theme_love": 0.9},
+    ))
+    sink.close()
+
+    header, row = path.read_text(encoding="utf-8").splitlines()[:2]
+    assert header.split(",") == list(FeatureRecord.IDENTITY) + ["theme_love"]
+    assert "fake/jev-1" not in row
+    assert "full@v1" not in row
+
+
+def test_a_jsonl_sink_may_decline_to_write_the_provenance_columns(tmp_path):
+    """The same exclusion, for the sink whose columns live nested under
+    ``features`` rather than flattened -- the excluded name must be
+    stripped from both places it could appear."""
+    path = tmp_path / "o.jsonl"
+    with JsonlSink(str(path), exclude=("clf_model",)) as sink:
+        sink.open(["source_path", "source_format", "part_index"])
+        sink.write(FeatureRecord(
+            source_path="song.mid", source_format="midi", part_index=0,
+            features={"clf_model": "fake/jev-1", "theme_love": 0.9},
+        ))
+    payload = json.loads(path.read_text().strip())
+    assert "clf_model" not in payload["features"]
+    assert payload["features"]["theme_love"] == 0.9
+
+
 def test_sinks_are_safe_to_close_with_nothing_written(tmp_path):
     """Closing without a write produces a valid empty artifact, not nothing.
 

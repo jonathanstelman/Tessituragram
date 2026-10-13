@@ -15,9 +15,12 @@ from __future__ import annotations
 import statistics
 from dataclasses import dataclass
 from itertools import combinations
-from typing import Iterable
+from typing import Iterable, Sequence
 
 from .record import FeatureRecord
+
+#: Fewer known rows than this and a correlation is noise, not a finding.
+MIN_PAIRWISE = 3
 
 
 @dataclass
@@ -30,10 +33,44 @@ class FeatureProfile:
     dtype: str
 
 
-def _column_names(records: list[FeatureRecord]) -> list[str]:
+def _as_mapping(record) -> dict:
+    """A record's columns as a plain mapping.
+
+    ``correlated_pairs`` and ``unassessable_columns`` are exercised both
+    with real ``FeatureRecord``s (production, and ``profile_records``'
+    own tests) and with plain ``{column: value}`` dicts (this module's own
+    pairwise-completeness tests, which have no identity fields to carry).
+    ``getattr(..., "features", None)`` tells the two apart without the
+    caller having to.
+    """
+    features = getattr(record, "features", None)
+    return record if features is None else features
+
+
+def _assessable(values: Iterable) -> bool:
+    """Whether a column can be assessed for redundancy at all.
+
+    One predicate, called by both ``unassessable_columns`` and
+    ``correlated_pairs``, because they must agree on what "assessable"
+    means and have disagreed about it once already. Two verbatim copies
+    of a rule are the state immediately before they diverge again.
+
+    Numeric-or-null: a correlation needs numbers, and ``bool`` is
+    excluded deliberately even though it is an ``int`` subclass -- a
+    flag correlating perfectly with another flag is not the redundancy
+    this looks for, and the project emits no boolean columns anyway.
+    """
+    return all(
+        value is None
+        or (isinstance(value, (int, float)) and not isinstance(value, bool))
+        for value in values
+    )
+
+
+def _column_names(records) -> list[str]:
     seen: list[str] = []
     for record in records:
-        for name in record.features:
+        for name in _as_mapping(record):
             if name not in seen:
                 seen.append(name)
     return seen
@@ -73,28 +110,80 @@ def profile_records(records: Iterable[FeatureRecord]) -> list[FeatureProfile]:
     return profiles
 
 
+def unassessable_columns(records, minimum: int = MIN_PAIRWISE) -> list[str]:
+    """Columns with too few known values to correlate against anything.
+
+    Reported rather than dropped: "we could not tell" and "not
+    redundant" are different answers, and conflating them is how a
+    profiler quietly understates redundancy.
+
+    Only numeric-or-null columns are candidates at all -- the same
+    eligibility test ``correlated_pairs`` applies -- so a fully-populated
+    string column is simply not a candidate for redundancy assessment,
+    rather than being counted as having zero known values and reported as
+    unmeasurable alongside genuinely sparse numeric columns.
+    """
+    values_by_column: dict[str, list] = {}
+    for record in records:
+        # _as_mapping, not record.items(): this function used to accept
+        # only a plain mapping while _as_mapping's docstring promised
+        # both functions took either, so a real FeatureRecord raised
+        # here.
+        for column, value in _as_mapping(record).items():
+            values_by_column.setdefault(column, []).append(value)
+
+    counts = {
+        column: sum(1 for v in values if v is not None)
+        for column, values in values_by_column.items()
+        if _assessable(values)
+    }
+    return sorted(column for column, count in counts.items() if count < minimum)
+
+
 def correlated_pairs(
-    records: Iterable[FeatureRecord], threshold: float = 0.95
+    records: Iterable, threshold: float = 0.95, exclude: Sequence[str] = ()
 ) -> list[tuple[str, str, float]]:
-    """Numeric column pairs whose absolute correlation reaches the threshold."""
+    """Numeric column pairs whose absolute correlation reaches the threshold.
+
+    Compared over each pair's *pairwise-complete* rows -- the rows where
+    both columns are known -- rather than discarding a column entirely for
+    carrying a null somewhere else. A column that is null on every row of
+    one source (every lyrics column on a MIDI-only corpus, say) still gets
+    compared against anything it shares real rows with.
+
+    A pair with fewer than ``MIN_PAIRWISE`` shared rows is left out: a
+    correlation computed from one or two points is noise, not a finding,
+    and reporting it as one would be worse than the blind spot this
+    replaces. ``unassessable_columns`` is where that "we could not tell"
+    gets reported instead of silently vanishing.
+    """
     records = list(records)
     if not records:
         return []
 
-    columns: dict[str, list[float]] = {}
+    exclude_set = set(exclude)
+    columns: dict[str, list[float | None]] = {}
     for name in _column_names(records):
-        values = [r.features.get(name) for r in records]
-        if all(
-            isinstance(v, (int, float)) and not isinstance(v, bool) for v in values
-        ):
-            columns[name] = [float(v) for v in values]
+        if name in exclude_set:
+            continue
+        values = [_as_mapping(r).get(name) for r in records]
+        if _assessable(values):
+            columns[name] = values
 
     found: list[tuple[str, str, float]] = []
     for left, right in combinations(columns, 2):
-        a, b = columns[left], columns[right]
+        shared = [
+            (a, b)
+            for a, b in zip(columns[left], columns[right])
+            if a is not None and b is not None
+        ]
+        if len(shared) < MIN_PAIRWISE:
+            continue
+        a = [float(v) for v, _ in shared]
+        b = [float(v) for _, v in shared]
         # A zero-variance column makes correlation() divide by zero; it also
         # can't be "correlated" with anything in a way worth reporting.
-        if len(a) < 2 or len(set(a)) <= 1 or len(set(b)) <= 1:
+        if len(set(a)) <= 1 or len(set(b)) <= 1:
             continue
         r = statistics.correlation(a, b)
         if abs(r) >= threshold:

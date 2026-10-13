@@ -66,13 +66,23 @@ class FeatureSpec:
     #: spelling, so chromaticism features are inferred there and stronger from
     #: MusicXML. None means "equally valid for every supported format".
     best_with: tuple[str, ...] | None = None
+    #: True for a feature that runs only when its group is named. Every
+    #: group registered at the start of this project was deterministic,
+    #: offline and free, so "all registered features" and "everything a
+    #: default run should do" were the same set. The ``lyrics`` group is
+    #: none of those three -- it calls a paid network service -- so it
+    #: runs only when asked for, and an unfiltered ``schema()`` or
+    #: ``extract_part()`` leaves it out rather than emitting 178 columns
+    #: that can only ever be null. Naming the group explicitly
+    #: (``--groups lyrics``) is the only way in.
+    opt_in: bool = False
 
 
 _REGISTRY: dict[str, FeatureSpec] = {}
 
 
 def feature(name, group, scope, source, description, fields,
-            dtype="float", citation=None, best_with=None):
+            dtype="float", citation=None, best_with=None, opt_in=False):
     """Register an extractor under ``name``, scoped to a part or a piece."""
     if scope not in ("part", "piece"):
         raise ValueError(f"scope must be 'part' or 'piece', got {scope!r}")
@@ -84,6 +94,7 @@ def feature(name, group, scope, source, description, fields,
             name=name, group=group, scope=scope, source=source,
             description=description, fields=tuple(fields), func=func,
             dtype=dtype, citation=citation, best_with=best_with,
+            opt_in=opt_in,
         )
         return func
 
@@ -98,19 +109,39 @@ def groups() -> list[str]:
     return sorted({spec.group for spec in _REGISTRY.values()})
 
 
+def opt_in_groups() -> list[str]:
+    """Groups that no unfiltered call includes. See ``FeatureSpec.opt_in``."""
+    return sorted({spec.group for spec in _REGISTRY.values() if spec.opt_in})
+
+
+def _selected(specs: Iterable[FeatureSpec],
+              groups_filter: Iterable[str] | None) -> list[FeatureSpec]:
+    """The specs a filter asks for.
+
+    No filter means "every group that is not opt-in" -- not "every
+    registered group". An opt-in group has to be named, so that a
+    default run stays exactly what it was before the group existed.
+    """
+    wanted = set(groups_filter) if groups_filter else None
+    if wanted is None:
+        return [spec for spec in specs if not spec.opt_in]
+    return [spec for spec in specs if spec.group in wanted]
+
+
 def schema(groups_filter: Iterable[str] | None = None) -> list[str]:
     """Ordered output field names, without parsing anything.
 
     Identity columns (source path, part index, ...) come first, matching
     the order ``FeatureRecord.flat()`` emits them in.
+
+    An opt-in group's columns appear only when the group is named: see
+    ``_selected``.
     """
     from ..record import FeatureRecord  # local import avoids a cycle
 
     names = list(FeatureRecord.IDENTITY)
-    wanted = set(groups_filter) if groups_filter else None
-    for spec in _REGISTRY.values():
-        if wanted is None or spec.group in wanted:
-            names.extend(spec.fields)
+    for spec in _selected(_REGISTRY.values(), groups_filter):
+        names.extend(spec.fields)
     return names
 
 
@@ -121,13 +152,23 @@ def _run(specs, *args) -> dict[str, Any]:
     whole record, so one bad feature cannot lose an entire batch run. Errors
     are collected under a single ``_errors`` key rather than one per feature,
     so callers can relocate them without guessing field names.
+
+    A feature may also report a *partial* failure -- it produced its
+    columns, but something it asked for came back as an error -- by
+    returning its own ``_errors`` mapping alongside its columns. Those
+    entries are merged into this dict rather than overwriting it, so a
+    reason belonging to one axis's columns (a classifier question that
+    answered "HTTP 503") reaches the record instead of being dropped,
+    leaving a bare ``None`` with nothing anywhere to explain it.
     """
     out: dict[str, Any] = {}
     errors: dict[str, str] = {}
     for spec in specs:
         try:
-            out.update(spec.func(*args))
-        except Exception as exc:  # noqa: BLE001 — deliberate per-feature isolation
+            produced = dict(spec.func(*args))
+            errors.update(produced.pop("_errors", None) or {})
+            out.update(produced)
+        except Exception as exc:  # noqa: BLE001 - deliberate per-feature isolation
             out.update(dict.fromkeys(spec.fields))
             errors[spec.name] = f"{type(exc).__name__}: {exc}"
     out["_errors"] = errors
@@ -135,18 +176,16 @@ def _run(specs, *args) -> dict[str, Any]:
 
 
 def extract_part(part, piece, groups_filter=None) -> dict[str, Any]:
-    wanted = set(groups_filter) if groups_filter else None
     specs = [
-        s for s in _REGISTRY.values()
-        if s.scope == "part" and (wanted is None or s.group in wanted)
+        s for s in _selected(_REGISTRY.values(), groups_filter)
+        if s.scope == "part"
     ]
     return _run(specs, part, piece)
 
 
 def extract_piece(piece, groups_filter=None) -> dict[str, Any]:
-    wanted = set(groups_filter) if groups_filter else None
     specs = [
-        s for s in _REGISTRY.values()
-        if s.scope == "piece" and (wanted is None or s.group in wanted)
+        s for s in _selected(_REGISTRY.values(), groups_filter)
+        if s.scope == "piece"
     ]
     return _run(specs, piece)

@@ -1,0 +1,783 @@
+{
+  "_note": [
+    "Absent keys mean labelled false, zero or not present. Only the perspective",
+    "section is written exhaustively, because its None-vs-unspecified distinction",
+    "cannot be inferred from absence.",
+    "GATING: the love_interest_* fields are gated on relational_focus_present and",
+    "NOT on relationship_is_romantic. The spec's gate is relational focus, not",
+    "romance, so these fields are populated -- and non-null -- for a friendship, a",
+    "bereavement or a folktale focus too, wherever the song centres on one specific",
+    "other. The key name asserts romance; the data does not mean it. The spec fixes",
+    "the column names, so this note is the fix.",
+    "They are null, never false, exactly when relational_focus_present is false.",
+    "LANGUAGE: cast-agreement is Italian, the only non-English song. Grammatical",
+    "agreement cannot be expressed in English, so without it that casting mechanism",
+    "would have no case at all. Its agreement figure is measured on one song in a",
+    "language the spec does not validate, and must be reported with that caveat",
+    "rather than counted as validation."
+  ],
+  "split": {
+    "dev": [
+      "plain-love", "plain-nature", "plain-friendship", "plain-faith",
+      "plain-resilience", "plain-mourning", "plain-work", "plain-folktale",
+      "plain-protest", "metaphor-garden", "metaphor-ship", "metaphor-winter",
+      "irony-praise", "irony-cheerful-dirge", "irony-patriot",
+      "reveal-verse-three", "reveal-death", "reveal-narrator",
+      "whole-not-parts", "bystanders", "cast-pronouns", "cast-address",
+      "cast-named-role", "cast-biology"
+    ],
+    "held_out": [
+      "cast-life-stage", "cast-agreement", "cast-two-mechanisms", "cast-none",
+      "sensitive-parent-central", "sensitive-parent-passing",
+      "sensitive-third-person", "advisory-first-person-violence",
+      "advisory-narrated-violence", "advisory-alluded-sex",
+      "advisory-clean-child", "grave-subject-comic-treatment",
+      "trivial-subject-grand-treatment"
+    ]
+  },
+  "labels": {
+    "plain-love": {
+      "themes": {"love": true, "love_devotion": true},
+      "tone": {"sincere": true},
+      "advisories": {},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": true, "relationship_is_romantic": true,
+        "addressee_present": false,
+        "love_interest_gender": "male", "love_interest_gender_cast": 1,
+        "love_interest_cast_by_pronouns": true, "love_interest_cast_by_address": false,
+        "love_interest_cast_by_agreement": false, "love_interest_cast_by_named_role": false,
+        "love_interest_cast_by_biology": false,
+        "gender_adaptation_cost": 1, "gender_adaptation_blocker": "pronouns"
+      },
+      "sensitive": {}
+    },
+    "plain-nature": {
+      "themes": {"nature": true, "nature_landscape": true, "nature_seasons": true,
+                 "nature_weather": true},
+      "tone": {"sincere": true},
+      "advisories": {},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": false, "relationship_is_romantic": false,
+        "addressee_present": false,
+        "love_interest_gender": null, "love_interest_gender_cast": null,
+        "love_interest_cast_by_pronouns": null, "love_interest_cast_by_address": null,
+        "love_interest_cast_by_agreement": null, "love_interest_cast_by_named_role": null,
+        "love_interest_cast_by_biology": null,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {}
+    },
+    "plain-friendship": {
+      "themes": {"relationships": true, "relationships_friendship": true},
+      "tone": {"sincere": true},
+      "advisories": {"positive_messages": 3},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": true, "relationship_is_romantic": false,
+        "addressee_present": true,
+        "love_interest_gender": "unspecified", "love_interest_gender_cast": 0,
+        "love_interest_cast_by_pronouns": false, "love_interest_cast_by_address": false,
+        "love_interest_cast_by_agreement": false, "love_interest_cast_by_named_role": false,
+        "love_interest_cast_by_biology": false,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {}
+    },
+    "plain-faith": {
+      "themes": {"religion": true, "religion_devotional": true, "religion_divine": true},
+      "tone": {"sincere": true},
+      "advisories": {"religious_content": 5, "religious_content_first_person": true,
+                     "religious_content_depicted": true},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": false, "relationship_is_romantic": false,
+        "addressee_present": true,
+        "love_interest_gender": null, "love_interest_gender_cast": null,
+        "love_interest_cast_by_pronouns": null, "love_interest_cast_by_address": null,
+        "love_interest_cast_by_agreement": null, "love_interest_cast_by_named_role": null,
+        "love_interest_cast_by_biology": null,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {}
+    },
+    "plain-resilience": {
+      "themes": {"resilience": true, "resilience_endurance": true,
+                 "resilience_defiance": true, "resilience_empowerment": true},
+      "tone": {"sincere": true},
+      "advisories": {"positive_messages": 4, "role_models": 3},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": false, "relationship_is_romantic": false,
+        "addressee_present": false,
+        "love_interest_gender": null, "love_interest_gender_cast": null,
+        "love_interest_cast_by_pronouns": null, "love_interest_cast_by_address": null,
+        "love_interest_cast_by_agreement": null, "love_interest_cast_by_named_role": null,
+        "love_interest_cast_by_biology": null,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {}
+    },
+    "plain-mourning": {
+      "themes": {"relationships": true, "relationships_friendship": true,
+                 "living": true, "living_mortality": true, "living_memory": true},
+      "tone": {"elegiac": true},
+      "advisories": {"death": 3, "death_first_person": true, "death_depicted": false},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": true, "relationship_is_romantic": false,
+        "addressee_present": true,
+        "love_interest_gender": "unspecified", "love_interest_gender_cast": 0,
+        "love_interest_cast_by_pronouns": false, "love_interest_cast_by_address": false,
+        "love_interest_cast_by_agreement": false, "love_interest_cast_by_named_role": false,
+        "love_interest_cast_by_biology": false,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {}
+    },
+    "plain-work": {
+      "themes": {"activities": true, "activities_work": true, "activities_music": true},
+      "tone": {"sincere": true},
+      "advisories": {},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": false, "relationship_is_romantic": false,
+        "addressee_present": false,
+        "love_interest_gender": null, "love_interest_gender_cast": null,
+        "love_interest_cast_by_pronouns": null, "love_interest_cast_by_address": null,
+        "love_interest_cast_by_agreement": null, "love_interest_cast_by_named_role": null,
+        "love_interest_cast_by_biology": null,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {}
+    },
+    "plain-folktale": {
+      "themes": {"mythology": true, "mythology_ghosts": true,
+                 "mythology_folk_tradition": true},
+      "tone": {"sincere": true},
+      "advisories": {"death": 1, "death_first_person": false, "death_depicted": false},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": true, "relationship_is_romantic": false,
+        "addressee_present": true,
+        "love_interest_gender": "male", "love_interest_gender_cast": 1,
+        "love_interest_cast_by_pronouns": true, "love_interest_cast_by_address": false,
+        "love_interest_cast_by_agreement": false, "love_interest_cast_by_named_role": false,
+        "love_interest_cast_by_biology": false,
+        "gender_adaptation_cost": 1, "gender_adaptation_blocker": "pronouns"
+      },
+      "sensitive": {}
+    },
+    "plain-protest": {
+      "themes": {"social": true, "social_justice": true, "social_class_labour": true,
+                 "resilience": true, "resilience_defiance": true},
+      "tone": {"sincere": true},
+      "advisories": {},
+      "perspective": {
+        "narrator_gender": "collective", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": false, "relationship_is_romantic": false,
+        "addressee_present": false,
+        "love_interest_gender": null, "love_interest_gender_cast": null,
+        "love_interest_cast_by_pronouns": null, "love_interest_cast_by_address": null,
+        "love_interest_cast_by_agreement": null, "love_interest_cast_by_named_role": null,
+        "love_interest_cast_by_biology": null,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {}
+    },
+    "metaphor-garden": {
+      "themes": {"love": true, "love_devotion": true},
+      "tone": {"sincere": true},
+      "advisories": {},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": true, "relationship_is_romantic": true,
+        "addressee_present": true,
+        "love_interest_gender": "unspecified", "love_interest_gender_cast": 0,
+        "love_interest_cast_by_pronouns": false, "love_interest_cast_by_address": false,
+        "love_interest_cast_by_agreement": false, "love_interest_cast_by_named_role": false,
+        "love_interest_cast_by_biology": false,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {}
+    },
+    "metaphor-ship": {
+      "themes": {"nature": true, "nature_sea": true, "living": true,
+                 "living_time": true, "living_aging": true},
+      "tone": {"sincere": true, "elegiac": true},
+      "advisories": {"death": 1, "death_first_person": true, "death_depicted": false},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": false, "relationship_is_romantic": false,
+        "addressee_present": false,
+        "love_interest_gender": null, "love_interest_gender_cast": null,
+        "love_interest_cast_by_pronouns": null, "love_interest_cast_by_address": null,
+        "love_interest_cast_by_agreement": null, "love_interest_cast_by_named_role": null,
+        "love_interest_cast_by_biology": null,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {}
+    },
+    "metaphor-winter": {
+      "themes": {"living": true, "living_mortality": true, "nature": true,
+                 "nature_seasons": true, "love": true, "love_lost": true},
+      "tone": {"elegiac": true},
+      "advisories": {"death": 3, "death_first_person": true, "death_depicted": false},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": true, "relationship_is_romantic": true,
+        "addressee_present": false,
+        "love_interest_gender": "unspecified", "love_interest_gender_cast": 0,
+        "love_interest_cast_by_pronouns": false, "love_interest_cast_by_address": false,
+        "love_interest_cast_by_agreement": false, "love_interest_cast_by_named_role": false,
+        "love_interest_cast_by_biology": false,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {"loss_of_partner": true, "loss_of_partner_centrality": true,
+                    "loss_of_partner_first_person": true}
+    },
+    "irony-praise": {
+      "themes": {"relationships": true, "relationships_betrayal": true},
+      "tone": {"ironic": true, "comic": true},
+      "advisories": {},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": true, "relationship_is_romantic": true,
+        "addressee_present": false,
+        "love_interest_gender": "male", "love_interest_gender_cast": 1,
+        "love_interest_cast_by_pronouns": true, "love_interest_cast_by_address": false,
+        "love_interest_cast_by_agreement": false, "love_interest_cast_by_named_role": false,
+        "love_interest_cast_by_biology": false,
+        "gender_adaptation_cost": 1, "gender_adaptation_blocker": "pronouns"
+      },
+      "sensitive": {}
+    },
+    "irony-cheerful-dirge": {
+      "themes": {"living": true, "living_mortality": true, "activities": true,
+                 "activities_dancing": true},
+      "tone": {"comic": true, "ironic": true, "playful": true},
+      "advisories": {"death": 4, "death_first_person": true, "death_depicted": false},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": false, "relationship_is_romantic": false,
+        "addressee_present": true,
+        "love_interest_gender": null, "love_interest_gender_cast": null,
+        "love_interest_cast_by_pronouns": null, "love_interest_cast_by_address": null,
+        "love_interest_cast_by_agreement": null, "love_interest_cast_by_named_role": null,
+        "love_interest_cast_by_biology": null,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {}
+    },
+    "irony-patriot": {
+      "themes": {"social": true, "social_war_conflict": true},
+      "tone": {"ironic": true},
+      "advisories": {"violence": 2, "violence_first_person": false,
+                     "violence_depicted": false,
+                     "death": 2, "death_first_person": true, "death_depicted": false},
+      "perspective": {
+        "narrator_gender": "collective", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": false, "relationship_is_romantic": false,
+        "addressee_present": true,
+        "love_interest_gender": null, "love_interest_gender_cast": null,
+        "love_interest_cast_by_pronouns": null, "love_interest_cast_by_address": null,
+        "love_interest_cast_by_agreement": null, "love_interest_cast_by_named_role": null,
+        "love_interest_cast_by_biology": null,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {"war_displacement": true, "war_displacement_centrality": true,
+                    "war_displacement_first_person": true}
+    },
+    "reveal-verse-three": {
+      "themes": {"love": true, "love_devotion": true, "love_parting": true},
+      "tone": {"sincere": true},
+      "advisories": {},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": true, "relationship_is_romantic": true,
+        "addressee_present": false,
+        "love_interest_gender": "male", "love_interest_gender_cast": 1,
+        "love_interest_cast_by_pronouns": true, "love_interest_cast_by_address": false,
+        "love_interest_cast_by_agreement": false, "love_interest_cast_by_named_role": false,
+        "love_interest_cast_by_biology": false,
+        "gender_adaptation_cost": 1, "gender_adaptation_blocker": "pronouns"
+      },
+      "sensitive": {}
+    },
+    "reveal-death": {
+      "themes": {"relationships": true, "relationships_parent_child": true,
+                 "living": true, "living_mortality": true},
+      "tone": {"elegiac": true},
+      "advisories": {"death": 4, "death_first_person": true, "death_depicted": false},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": true, "relationship_is_romantic": false,
+        "addressee_present": true,
+        "love_interest_gender": "unspecified", "love_interest_gender_cast": 0,
+        "love_interest_cast_by_pronouns": false, "love_interest_cast_by_address": false,
+        "love_interest_cast_by_agreement": false, "love_interest_cast_by_named_role": false,
+        "love_interest_cast_by_biology": false,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {"loss_of_child": true, "loss_of_child_centrality": true,
+                    "loss_of_child_first_person": true}
+    },
+    "reveal-narrator": {
+      "themes": {"living": true, "living_aging": true, "living_memory": true},
+      "tone": {"sincere": true},
+      "advisories": {},
+      "perspective": {
+        "narrator_gender": "male", "narrator_gender_cast": 5,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": true,
+        "relational_focus_present": false, "relationship_is_romantic": false,
+        "addressee_present": false,
+        "love_interest_gender": null, "love_interest_gender_cast": null,
+        "love_interest_cast_by_pronouns": null, "love_interest_cast_by_address": null,
+        "love_interest_cast_by_agreement": null, "love_interest_cast_by_named_role": null,
+        "love_interest_cast_by_biology": null,
+        "gender_adaptation_cost": 5, "gender_adaptation_blocker": "biology"
+      },
+      "sensitive": {}
+    },
+    "whole-not-parts": {
+      "themes": {"love": true, "love_courtship": true},
+      "tone": {"sincere": true},
+      "advisories": {"violence": 1, "violence_first_person": true,
+                     "violence_depicted": false},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": true, "relationship_is_romantic": true,
+        "addressee_present": true,
+        "love_interest_gender": "unspecified", "love_interest_gender_cast": 0,
+        "love_interest_cast_by_pronouns": false, "love_interest_cast_by_address": false,
+        "love_interest_cast_by_agreement": false, "love_interest_cast_by_named_role": false,
+        "love_interest_cast_by_biology": false,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {"abuse": true, "abuse_centrality": true, "abuse_first_person": true}
+    },
+    "bystanders": {
+      "themes": {"activities": true, "activities_eating": true, "social": true,
+                 "social_city": true, "living": true, "living_solitude": true},
+      "tone": {"sincere": true},
+      "advisories": {},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": false, "relationship_is_romantic": false,
+        "addressee_present": false,
+        "love_interest_gender": null, "love_interest_gender_cast": null,
+        "love_interest_cast_by_pronouns": null, "love_interest_cast_by_address": null,
+        "love_interest_cast_by_agreement": null, "love_interest_cast_by_named_role": null,
+        "love_interest_cast_by_biology": null,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {}
+    },
+    "cast-pronouns": {
+      "themes": {"love": true, "love_unrequited": true},
+      "tone": {"sincere": true},
+      "advisories": {},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": true, "relationship_is_romantic": true,
+        "addressee_present": false,
+        "love_interest_gender": "female", "love_interest_gender_cast": 1,
+        "love_interest_cast_by_pronouns": true, "love_interest_cast_by_address": false,
+        "love_interest_cast_by_agreement": false, "love_interest_cast_by_named_role": false,
+        "love_interest_cast_by_biology": false,
+        "gender_adaptation_cost": 1, "gender_adaptation_blocker": "pronouns"
+      },
+      "sensitive": {}
+    },
+    "cast-address": {
+      "themes": {"love": true, "love_devotion": true, "activities": true,
+                 "activities_music": true},
+      "tone": {"sincere": true},
+      "advisories": {},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": true, "relationship_is_romantic": true,
+        "addressee_present": true,
+        "love_interest_gender": "female", "love_interest_gender_cast": 3,
+        "love_interest_cast_by_pronouns": false, "love_interest_cast_by_address": true,
+        "love_interest_cast_by_agreement": false, "love_interest_cast_by_named_role": false,
+        "love_interest_cast_by_biology": false,
+        "gender_adaptation_cost": 3, "gender_adaptation_blocker": "address"
+      },
+      "sensitive": {}
+    },
+    "cast-named-role": {
+      "themes": {"living": true, "living_solitude": true, "resilience": true,
+                 "resilience_identity": true},
+      "tone": {"sincere": true},
+      "advisories": {},
+      "perspective": {
+        "narrator_gender": "male", "narrator_gender_cast": 5,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": true,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": false, "relationship_is_romantic": false,
+        "addressee_present": true,
+        "love_interest_gender": null, "love_interest_gender_cast": null,
+        "love_interest_cast_by_pronouns": null, "love_interest_cast_by_address": null,
+        "love_interest_cast_by_agreement": null, "love_interest_cast_by_named_role": null,
+        "love_interest_cast_by_biology": null,
+        "gender_adaptation_cost": 5, "gender_adaptation_blocker": "named_role"
+      },
+      "sensitive": {}
+    },
+    "cast-biology": {
+      "themes": {"relationships": true, "relationships_parent_child": true},
+      "tone": {"sincere": true},
+      "advisories": {},
+      "perspective": {
+        "narrator_gender": "female", "narrator_gender_cast": 5,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": true,
+        "relational_focus_present": true, "relationship_is_romantic": false,
+        "addressee_present": true,
+        "love_interest_gender": "unspecified", "love_interest_gender_cast": 0,
+        "love_interest_cast_by_pronouns": false, "love_interest_cast_by_address": false,
+        "love_interest_cast_by_agreement": false, "love_interest_cast_by_named_role": false,
+        "love_interest_cast_by_biology": false,
+        "gender_adaptation_cost": 5, "gender_adaptation_blocker": "biology"
+      },
+      "sensitive": {}
+    },
+    "cast-life-stage": {
+      "themes": {"love": true, "love_courtship": true, "relationships": true,
+                 "relationships_family": true},
+      "tone": {"sincere": true},
+      "advisories": {},
+      "perspective": {
+        "narrator_gender": "female", "narrator_gender_cast": 5,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": true,
+        "relational_focus_present": false, "relationship_is_romantic": false,
+        "addressee_present": false,
+        "love_interest_gender": null, "love_interest_gender_cast": null,
+        "love_interest_cast_by_pronouns": null, "love_interest_cast_by_address": null,
+        "love_interest_cast_by_agreement": null, "love_interest_cast_by_named_role": null,
+        "love_interest_cast_by_biology": null,
+        "gender_adaptation_cost": 5, "gender_adaptation_blocker": "biology"
+      },
+      "sensitive": {}
+    },
+    "cast-agreement": {
+      "themes": {"relationships": true, "relationships_home": true,
+                 "activities": true, "activities_music": true},
+      "tone": {"sincere": true},
+      "advisories": {},
+      "perspective": {
+        "narrator_gender": "female", "narrator_gender_cast": 4,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": true, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": false, "relationship_is_romantic": false,
+        "addressee_present": false,
+        "love_interest_gender": null, "love_interest_gender_cast": null,
+        "love_interest_cast_by_pronouns": null, "love_interest_cast_by_address": null,
+        "love_interest_cast_by_agreement": null, "love_interest_cast_by_named_role": null,
+        "love_interest_cast_by_biology": null,
+        "gender_adaptation_cost": 4, "gender_adaptation_blocker": "agreement"
+      },
+      "sensitive": {}
+    },
+    "cast-two-mechanisms": {
+      "themes": {"love": true, "love_unrequited": true, "love_complicated": true},
+      "tone": {"sincere": true},
+      "advisories": {},
+      "perspective": {
+        "narrator_gender": "female", "narrator_gender_cast": 5,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": true,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": true, "relationship_is_romantic": true,
+        "addressee_present": false,
+        "love_interest_gender": "male", "love_interest_gender_cast": 1,
+        "love_interest_cast_by_pronouns": true, "love_interest_cast_by_address": false,
+        "love_interest_cast_by_agreement": false, "love_interest_cast_by_named_role": false,
+        "love_interest_cast_by_biology": false,
+        "gender_adaptation_cost": 5, "gender_adaptation_blocker": "named_role"
+      },
+      "sensitive": {}
+    },
+    "cast-none": {
+      "themes": {"religion": true, "religion_liturgical": true,
+                 "religion_devotional": true},
+      "tone": {"sincere": true, "grand": true},
+      "advisories": {"religious_content": 5, "religious_content_first_person": true,
+                     "religious_content_depicted": true},
+      "perspective": {
+        "narrator_gender": "collective", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": false, "relationship_is_romantic": false,
+        "addressee_present": true,
+        "love_interest_gender": null, "love_interest_gender_cast": null,
+        "love_interest_cast_by_pronouns": null, "love_interest_cast_by_address": null,
+        "love_interest_cast_by_agreement": null, "love_interest_cast_by_named_role": null,
+        "love_interest_cast_by_biology": null,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {}
+    },
+    "sensitive-parent-central": {
+      "themes": {"relationships": true, "relationships_parent_child": true,
+                 "relationships_family": true, "living": true,
+                 "living_mortality": true, "living_memory": true},
+      "tone": {"elegiac": true},
+      "advisories": {"death": 4, "death_first_person": true, "death_depicted": false},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": true, "relationship_is_romantic": false,
+        "addressee_present": false,
+        "love_interest_gender": "female", "love_interest_gender_cast": 3,
+        "love_interest_cast_by_pronouns": true, "love_interest_cast_by_address": true,
+        "love_interest_cast_by_agreement": false, "love_interest_cast_by_named_role": false,
+        "love_interest_cast_by_biology": false,
+        "gender_adaptation_cost": 3, "gender_adaptation_blocker": "address"
+      },
+      "sensitive": {"loss_of_parent": true, "loss_of_parent_centrality": true,
+                    "loss_of_parent_first_person": true}
+    },
+    "sensitive-parent-passing": {
+      "themes": {"nature": true, "nature_landscape": true, "nature_animals": true,
+                 "activities": true, "activities_work": true},
+      "tone": {"sincere": true},
+      "advisories": {"death": 1, "death_first_person": true, "death_depicted": false},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": false, "relationship_is_romantic": false,
+        "addressee_present": false,
+        "love_interest_gender": null, "love_interest_gender_cast": null,
+        "love_interest_cast_by_pronouns": null, "love_interest_cast_by_address": null,
+        "love_interest_cast_by_agreement": null, "love_interest_cast_by_named_role": null,
+        "love_interest_cast_by_biology": null,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {"loss_of_parent": true, "loss_of_parent_centrality": false,
+                    "loss_of_parent_first_person": true}
+    },
+    "sensitive-third-person": {
+      "themes": {"relationships": true, "relationships_friendship": true,
+                 "living": true, "living_mortality": true},
+      "tone": {"elegiac": true},
+      "advisories": {"death": 2, "death_first_person": false, "death_depicted": false},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": true, "relationship_is_romantic": false,
+        "addressee_present": false,
+        "love_interest_gender": "female", "love_interest_gender_cast": 1,
+        "love_interest_cast_by_pronouns": true, "love_interest_cast_by_address": false,
+        "love_interest_cast_by_agreement": false, "love_interest_cast_by_named_role": false,
+        "love_interest_cast_by_biology": false,
+        "gender_adaptation_cost": 1, "gender_adaptation_blocker": "pronouns"
+      },
+      "sensitive": {"loss_of_parent": true, "loss_of_parent_centrality": true,
+                    "loss_of_parent_first_person": false}
+    },
+    "advisory-first-person-violence": {
+      "themes": {"living": true, "living_mortality": true},
+      "tone": {"sincere": true},
+      "advisories": {"violence": 5, "violence_first_person": true,
+                     "violence_depicted": true,
+                     "death": 4, "death_first_person": true, "death_depicted": true},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": false, "relationship_is_romantic": false,
+        "addressee_present": false,
+        "love_interest_gender": null, "love_interest_gender_cast": null,
+        "love_interest_cast_by_pronouns": null, "love_interest_cast_by_address": null,
+        "love_interest_cast_by_agreement": null, "love_interest_cast_by_named_role": null,
+        "love_interest_cast_by_biology": null,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {}
+    },
+    "advisory-narrated-violence": {
+      "themes": {"social": true, "social_war_conflict": true},
+      "tone": {"sincere": true, "elegiac": true},
+      "advisories": {"violence": 3, "violence_first_person": false,
+                     "violence_depicted": false,
+                     "death": 3, "death_first_person": false, "death_depicted": false},
+      "perspective": {
+        "narrator_gender": "collective", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": false, "relationship_is_romantic": false,
+        "addressee_present": false,
+        "love_interest_gender": null, "love_interest_gender_cast": null,
+        "love_interest_cast_by_pronouns": null, "love_interest_cast_by_address": null,
+        "love_interest_cast_by_agreement": null, "love_interest_cast_by_named_role": null,
+        "love_interest_cast_by_biology": null,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {"war_displacement": true, "war_displacement_centrality": true,
+                    "war_displacement_first_person": false}
+    },
+    "advisory-alluded-sex": {
+      "themes": {"love": true, "love_desire": true},
+      "tone": {"sincere": true},
+      "advisories": {"sex": 1, "sex_first_person": true, "sex_depicted": false},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": true, "relationship_is_romantic": true,
+        "addressee_present": false,
+        "love_interest_gender": "unspecified", "love_interest_gender_cast": 0,
+        "love_interest_cast_by_pronouns": false, "love_interest_cast_by_address": false,
+        "love_interest_cast_by_agreement": false, "love_interest_cast_by_named_role": false,
+        "love_interest_cast_by_biology": false,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {}
+    },
+    "advisory-clean-child": {
+      "themes": {"activities": true, "activities_play": true, "nature": true,
+                 "nature_animals": true},
+      "tone": {"playful": true, "comic": true},
+      "advisories": {"positive_messages": 0, "role_models": 0, "violence": 0, "sex": 0,
+                     "language": 0, "substance_use": 0, "death": 0, "self_harm": 0,
+                     "religious_content": 0},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": false, "relationship_is_romantic": false,
+        "addressee_present": true,
+        "love_interest_gender": null, "love_interest_gender_cast": null,
+        "love_interest_cast_by_pronouns": null, "love_interest_cast_by_address": null,
+        "love_interest_cast_by_agreement": null, "love_interest_cast_by_named_role": null,
+        "love_interest_cast_by_biology": null,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {}
+    },
+    "grave-subject-comic-treatment": {
+      "themes": {"living": true, "living_mortality": true},
+      "tone": {"comic": true, "playful": true, "ironic": true},
+      "advisories": {"death": 4, "death_first_person": true, "death_depicted": false,
+                     "substance_use": 1, "substance_use_first_person": false,
+                     "substance_use_depicted": false},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": false, "relationship_is_romantic": false,
+        "addressee_present": true,
+        "love_interest_gender": null, "love_interest_gender_cast": null,
+        "love_interest_cast_by_pronouns": null, "love_interest_cast_by_address": null,
+        "love_interest_cast_by_agreement": null, "love_interest_cast_by_named_role": null,
+        "love_interest_cast_by_biology": null,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {}
+    },
+    "trivial-subject-grand-treatment": {
+      "themes": {},
+      "tone": {"grand": true, "comic": true},
+      "advisories": {},
+      "perspective": {
+        "narrator_gender": "unspecified", "narrator_gender_cast": 0,
+        "narrator_cast_by_pronouns": false, "narrator_cast_by_address": false,
+        "narrator_cast_by_agreement": false, "narrator_cast_by_named_role": false,
+        "narrator_cast_by_biology": false,
+        "relational_focus_present": false, "relationship_is_romantic": false,
+        "addressee_present": true,
+        "love_interest_gender": null, "love_interest_gender_cast": null,
+        "love_interest_cast_by_pronouns": null, "love_interest_cast_by_address": null,
+        "love_interest_cast_by_agreement": null, "love_interest_cast_by_named_role": null,
+        "love_interest_cast_by_biology": null,
+        "gender_adaptation_cost": 0, "gender_adaptation_blocker": null
+      },
+      "sensitive": {}
+    }
+  }
+}

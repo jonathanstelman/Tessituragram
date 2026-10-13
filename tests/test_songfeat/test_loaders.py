@@ -12,7 +12,7 @@ from songfeat.loaders import (
     load,
     quarters_to_seconds,
 )
-from songfeat.model import Note, TempoMark
+from songfeat.model import Note, TempoMark, Syllable
 
 ARIA = os.path.join("data", "test_data_arias", "1-I.mid")
 
@@ -328,3 +328,144 @@ def test_single_tune_abc_still_loads():
             handle.write(ABC_TUNE)
         piece = load(path)
     assert [n.midi for n in piece.notes] == [67, 69, 71, 72, 71, 69, 67, 69, 71, 72]
+
+
+# --- lyrics ----------------------------------------------------------------
+
+
+def test_loader_captures_all_verses_from_musicxml(tmp_path):
+    """music21's ``element.lyric`` joins every verse with newlines, so the
+    loader reads ``element.lyrics`` to capture individual verses with their
+    verse numbers, and derives the convenience field from the lowest-numbered verse."""
+    from music21 import note as m21_note, stream
+
+    part = stream.Part()
+    first = m21_note.Note("C4", quarterLength=1.0)
+    first.addLyric("Ky", applyRaw=True)
+    first.addLyric("Lord", applyRaw=True)       # verse 2
+    second = m21_note.Note("D4", quarterLength=1.0)
+    second.addLyric("ri", applyRaw=True)
+    second.addLyric("have", applyRaw=True)
+    part.append([first, second])
+    score = stream.Score([part])
+    path = tmp_path / "two-verses.musicxml"
+    score.write("musicxml", fp=str(path))
+
+    piece = load(str(path))
+    notes = piece.parts[0].notes
+
+    assert [s.number for s in notes[0].lyrics] == [1, 2]
+    assert [s.text for s in notes[0].lyrics] == ["Ky", "Lord"]
+    assert notes[0].lyric == "Ky", "lyric derives from lowest-numbered verse (1)"
+    assert [s.text for s in notes[1].lyrics] == ["ri", "have"]
+
+
+def test_loader_uses_lowest_verse_when_verse_1_is_absent(tmp_path):
+    """When verses are numbered starting at 2+, Note.lyric derives from the
+    lowest-numbered verse present, not from music21's multi-verse fallback.
+
+    With multiple non-verse-1 syllables, the bug would join them with "\\n",
+    so this test pins that the loader uses the minimum verse number instead.
+    """
+    # Create a minimal MusicXML with lyrics starting at verse 2 and 3
+    # (manually constructed XML since music21's addLyric always creates sequential verses)
+    musicxml = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE score-partwise PUBLIC "-//Musicnerd//DTD MusicXML 3.1 Partwise//EN"
+ "http://www.musicxml.org/partwise.dtd">
+<score-partwise version="3.1">
+  <part-list>
+    <score-part id="P1">
+      <part-name>Part 1</part-name>
+    </score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>4</duration>
+        <type>quarter</type>
+        <lyric number="2">
+          <syllabic>single</syllabic>
+          <text>Wer</text>
+        </lyric>
+        <lyric number="3">
+          <syllabic>single</syllabic>
+          <text>Der</text>
+        </lyric>
+      </note>
+    </measure>
+  </part>
+</score-partwise>"""
+
+    path = tmp_path / "verses-2-3.musicxml"
+    path.write_text(musicxml)
+
+    piece = load(str(path))
+    note = piece.parts[0].notes[0]
+
+    assert [s.number for s in note.lyrics] == [2, 3]
+    assert [s.text for s in note.lyrics] == ["Wer", "Der"]
+    assert note.lyric == "Wer", "lyric is lowest-numbered verse (2), not joined like 'Wer\\nDer'"
+
+
+def test_loader_expands_composite_lyrics_with_elisions(tmp_path):
+    """Composite lyrics (elisions) must be expanded into separate syllables,
+    one per component, each with the component's own syllabic marker.
+
+    Italian and French vocal lines depend on this structure to assemble
+    elided words correctly. Music21 parses elisions fully; the loader
+    must emit one Syllable per component, not collapse them into a single
+    composite syllable.
+    """
+    # Create MusicXML with composite lyrics (elisions) as described in the finding
+    musicxml = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE score-partwise PUBLIC "-//Musicnerd//DTD MusicXML 3.1 Partwise//EN"
+ "http://www.musicxml.org/partwise.dtd">
+<score-partwise version="3.1">
+  <part-list>
+    <score-part id="P1">
+      <part-name>Part 1</part-name>
+    </score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>4</duration>
+        <type>quarter</type>
+        <lyric number="1">
+          <syllabic>single</syllabic>
+          <text>del</text>
+          <elision> </elision>
+          <syllabic>begin</syllabic>
+          <text>l'al</text>
+        </lyric>
+      </note>
+      <note>
+        <pitch><step>D</step><octave>4</octave></pitch>
+        <duration>4</duration>
+        <type>quarter</type>
+        <lyric number="1">
+          <syllabic>end</syllabic>
+          <text>ma</text>
+        </lyric>
+      </note>
+    </measure>
+  </part>
+</score-partwise>"""
+
+    path = tmp_path / "elisions.musicxml"
+    path.write_text(musicxml)
+
+    piece = load(str(path))
+    notes = piece.parts[0].notes
+
+    # First note should have two syllables: "del" (single) and "l'al" (begin)
+    assert [s.number for s in notes[0].lyrics] == [1, 1]
+    assert [s.text for s in notes[0].lyrics] == ["del", "l'al"]
+    assert [s.syllabic for s in notes[0].lyrics] == ["single", "begin"]
+
+    # Second note should have one syllable: "ma" (end)
+    assert [s.number for s in notes[1].lyrics] == [1]
+    assert [s.text for s in notes[1].lyrics] == ["ma"]
+    assert [s.syllabic for s in notes[1].lyrics] == ["end"]
