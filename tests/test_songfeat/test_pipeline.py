@@ -92,3 +92,66 @@ def test_run_through_a_real_sink_produces_a_correct_record():
     assert record.features["max_note"] == "E4"
     assert record.features["tempo_initial_bpm"] == 140.0
     assert set(record.errors) == EXPECTED_BORROWED_FAILURES
+
+
+def _musicxml_with_lyrics(tmp_path, words):
+    """A one-part score with one ``single`` syllable per word."""
+    from music21 import note, stream
+
+    part = stream.Part()
+    part.id = "Voice"
+    for word in words:
+        pitch = note.Note("C4", quarterLength=1.0)
+        pitch.lyric = word
+        part.append(pitch)
+    score = stream.Score()
+    score.insert(0, part)
+    out = tmp_path / "song.musicxml"
+    score.write("musicxml", fp=str(out))
+    return out
+
+
+def _musicxml_without_lyrics(tmp_path):
+    """A one-part score with notes but no lyrics at all."""
+    from music21 import note, stream
+
+    part = stream.Part()
+    part.id = "Violin"
+    for pitch_name in ("C4", "D4", "E4"):
+        part.append(note.Note(pitch_name, quarterLength=1.0))
+    score = stream.Score()
+    score.insert(0, part)
+    out = tmp_path / "instrumental.musicxml"
+    score.write("musicxml", fp=str(out))
+    return out
+
+
+def test_the_lyric_text_is_written_to_a_sidecar_file(tmp_path):
+    """The row carries a hash and a filename; the words go in a file,
+    because a 200-word text in a CSV cell is unusable and Sheets caps a
+    cell at 50,000 characters."""
+    from songfeat import pipeline
+    from songfeat.sinks.files import JsonlSink
+
+    score = _musicxml_with_lyrics(tmp_path, ["Wer", "reitet", "so", "spat"])
+    sidecars = tmp_path / "lyrics"
+    sink = JsonlSink(str(tmp_path / "o.jsonl"))
+    pipeline.run([str(score)], sink, groups_filter=["lyrics"],
+                 sidecar_dir=str(sidecars))
+
+    written = sidecars / (score.stem + ".txt")
+    assert written.exists()
+    assert written.read_text(encoding="utf-8") == "Wer reitet so spat\n"
+
+
+def test_no_sidecar_is_written_when_there_are_no_lyrics(tmp_path):
+    from songfeat import pipeline
+    from songfeat.sinks.files import JsonlSink
+
+    score = _musicxml_without_lyrics(tmp_path)
+    sidecars = tmp_path / "lyrics"
+    sink = JsonlSink(str(tmp_path / "o.jsonl"))
+    pipeline.run([str(score)], sink, groups_filter=["lyrics"],
+                 sidecar_dir=str(sidecars))
+
+    assert not sidecars.exists(), "an empty directory implies a file we failed to write"

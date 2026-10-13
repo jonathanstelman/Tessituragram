@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Iterable, Iterator
 
 from .features import base as features_base
@@ -17,10 +18,32 @@ def _rounded(value: float | None) -> float | None:
     return None if value is None else round(value, 4)
 
 
+def _write_sidecar(part, sidecar_dir: str, filename: str) -> None:
+    """Write this part's reassembled lyric text next to the output file.
+
+    A sidecar, not a table cell: a 200-word text is unusable in a CSV
+    cell, and the Sheets path caps a cell at 50,000 characters. Nothing
+    is written when the part turns out to carry no lyrics after all
+    (``assemble_text`` returning ``None``), which should not happen if
+    ``filename`` came from a real ``lyrics_text_path`` column, but is
+    checked rather than assumed.
+    """
+    from .features.lyrics.assemble import assemble_text
+
+    assembled = assemble_text(part)
+    if assembled is None:
+        return
+    os.makedirs(sidecar_dir, exist_ok=True)
+    target = os.path.join(sidecar_dir, filename)
+    with open(target, "w", encoding="utf-8") as handle:
+        handle.write(assembled.text)
+
+
 def analyze_file(
     path: str,
     groups_filter: Iterable[str] | None = None,
     drop_trailing_marker: bool = False,
+    sidecar_dir: str | None = None,
 ) -> Iterator[FeatureRecord]:
     piece = load(path, drop_trailing_marker=drop_trailing_marker)
     piece_features = features_base.extract_piece(piece, groups_filter)
@@ -30,7 +53,7 @@ def analyze_file(
         part_features = features_base.extract_part(part, piece, groups_filter)
         errors = {**piece_errors, **part_features.pop("_errors", {})}
         evidence = detect_vocal(part, piece)
-        yield FeatureRecord(
+        record = FeatureRecord(
             source_path=piece.source_path,
             source_format=piece.source_format,
             part_index=part.index,
@@ -47,6 +70,10 @@ def analyze_file(
             features={**piece_features, **part_features},
             errors=errors,
         )
+        sidecar_name = record.features.get("lyrics_text_path")
+        if sidecar_dir and sidecar_name:
+            _write_sidecar(part, sidecar_dir, sidecar_name)
+        yield record
 
 
 def run(
@@ -55,15 +82,23 @@ def run(
     groups_filter: Iterable[str] | None = None,
     drop_trailing_marker: bool = False,
     on_progress=None,
+    sidecar_dir: str | None = None,
 ) -> tuple[int, list[tuple[str, str]]]:
-    """Analyse every path into the sink. One bad file never stops the batch."""
+    """Analyse every path into the sink. One bad file never stops the batch.
+
+    ``sidecar_dir``, when given, is where each part's reassembled lyric
+    text is written as a ``<stem>.txt`` file alongside the lyric columns
+    (see ``_write_sidecar``). ``None`` writes no sidecars at all.
+    """
     sink.open(features_base.schema(groups_filter))
     count = 0
     failures: list[tuple[str, str]] = []
     try:
         for path in paths:
             try:
-                for record in analyze_file(path, groups_filter, drop_trailing_marker):
+                for record in analyze_file(
+                    path, groups_filter, drop_trailing_marker, sidecar_dir
+                ):
                     sink.write(record)
                     count += 1
             except (ParseError, UnsupportedFormatError, FileNotFoundError) as exc:

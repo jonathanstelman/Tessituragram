@@ -8,7 +8,7 @@ import sys
 from typing import Iterable
 
 from .features import registry, schema
-from .loaders import SUPPORTED_EXTENSIONS
+from .loaders import SUPPORTED_EXTENSIONS, load
 from .pipeline import run
 from .sinks.base import MemorySink
 from .sinks.files import CsvSink, JsonSink, JsonlSink
@@ -181,8 +181,48 @@ def build_parser() -> argparse.ArgumentParser:
             "Tessituragram corpus appends to every file"
         ),
     )
+    parser.add_argument(
+        "--lyrics-questions", choices=("core", "full"), default="full",
+        help=(
+            "which classifier question set to ask: 'full' is 153 questions "
+            "in 8 calls per song; 'core' is 13 in one call, about 8%% of "
+            "the cost, for development. The set used is recorded in the "
+            "clf_question_set column, so a lean run cannot be mistaken "
+            "for a complete one"
+        ),
+    )
+    parser.add_argument(
+        "--lyrics-estimate", action="store_true",
+        help=(
+            "print the number of classifier calls, questions and input "
+            "tokens the given inputs would need, then exit without "
+            "calling anything or writing records"
+        ),
+    )
+    parser.add_argument(
+        "--lyrics-max-calls", type=int, default=None, metavar="N",
+        help=(
+            "stop the run after N classifier calls rather than continuing; "
+            "a guard against a glob that matched more than you meant"
+        ),
+    )
     parser.add_argument("-q", "--quiet", action="store_true", help="suppress progress")
     return parser
+
+
+def _build_jev_client(args):
+    """The configured client, or None when no key is available.
+
+    A missing key is not an error: it means one feature group reports
+    null with a reason, and the rest of the run proceeds. The key is
+    read here, once, from the environment -- never from a CLI argument,
+    where it would land in shell history.
+    """
+    key = os.environ.get("JEV_KEY")
+    if not key:
+        return None
+    from .features.lyrics.client import HttpJevClient
+    return HttpJevClient(key, max_calls=args.lyrics_max_calls)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -210,6 +250,32 @@ def main(argv: list[str] | None = None) -> int:
     if not args.paths:
         build_parser().error("no input paths given")
 
+    if args.lyrics_estimate:
+        from .features.lyrics.assemble import assemble_text
+        from .features.lyrics.client import estimate
+        from .features.lyrics.questions import question_set
+
+        files = iter_score_files(args.paths, recursive=not args.no_recursive)
+        questions = question_set(args.lyrics_questions)
+        calls = questions_asked = tokens = 0
+        classifiable = 0
+        for path in files:
+            piece = load(path, drop_trailing_marker=args.drop_trailing_marker)
+            for part in piece.parts:
+                assembled = assemble_text(part)
+                if assembled is None:
+                    continue
+                classifiable += 1
+                predicted = estimate(questions, assembled.text)
+                calls += predicted.calls
+                questions_asked += predicted.questions
+                tokens += predicted.input_tokens
+        print(f"{len(files)} file(s), {classifiable} part(s) with lyrics")
+        print(f"{calls} calls, {questions_asked} questions, "
+              f"{tokens} input tokens")
+        print(f"question set: {args.lyrics_questions}")
+        return 0
+
     files = iter_score_files(args.paths, recursive=not args.no_recursive)
     if not files:
         print("no supported score files found", file=sys.stderr)
@@ -223,6 +289,21 @@ def main(argv: list[str] | None = None) -> int:
         if not args.quiet and total > 1:
             print(f"  [{counter['n']}/{total}] {os.path.basename(path)}", file=sys.stderr)
 
+    lyrics_active = groups_filter is not None and "lyrics" in groups_filter
+    if lyrics_active:
+        from .features.lyrics.cache import DEFAULT_PATH, AnswerCache
+        from .features.lyrics import service
+
+        service.configure(
+            client=_build_jev_client(args),
+            cache=AnswerCache(DEFAULT_PATH),
+            question_set_name=args.lyrics_questions,
+        )
+
+    sidecar_dir = None
+    if args.out and lyrics_active:
+        sidecar_dir = os.path.join(os.path.dirname(args.out) or ".", "lyrics")
+
     sink = MemorySink() if args.profile else make_sink(args.out, args.format)
     count, failures = run(
         files,
@@ -230,6 +311,7 @@ def main(argv: list[str] | None = None) -> int:
         groups_filter,
         drop_trailing_marker=args.drop_trailing_marker,
         on_progress=progress,
+        sidecar_dir=sidecar_dir,
     )
 
     if args.profile:
