@@ -13,11 +13,7 @@ from ...model import Part, Piece
 from ..base import feature
 from .assemble import assemble_text
 from .questions import Kind, Question, register
-
-NO_LYRICS = (
-    "this part carries no lyric events; lyric features need a "
-    "lyric-bearing format such as MusicXML"
-)
+from .service import NO_LYRICS
 
 TEXT_FIELDS = (
     "lyrics_word_count",
@@ -82,3 +78,46 @@ QUESTIONS = (
     ),
 )
 register(QUESTIONS)
+
+
+PROVENANCE_FIELDS = (
+    "lyrics_language",
+    "clf_model",
+    "clf_question_set",
+    "clf_classified_at",
+    "lyrics_classified_undefined_reason",
+)
+
+
+@feature(
+    name="lyrics_provenance", group="lyrics", scope="part", source="songfeat",
+    description=(
+        "Which model answered, under which question set, and when -- "
+        "without these a column means something different next year and "
+        "nobody can tell. ``clf_question_set`` distinguishes a lean "
+        "``core@v1`` run from a complete ``full@v1`` one, so a partly "
+        "classified database cannot be mistaken for a finished one. "
+        "``lyrics_classified_undefined_reason`` carries the one reason the "
+        "whole classified group is null: no key, no lyrics, text too long, "
+        "or a failed call. A sink may decline to write these columns, but "
+        "the record always has them."
+    ),
+    fields=PROVENANCE_FIELDS,
+    best_with=("musicxml",),
+)
+def lyrics_provenance(part: Part, piece: Piece) -> dict[str, Any]:
+    from .service import classify_part
+
+    classification = classify_part(part, piece)
+    if classification.reason is not None:
+        return {name: None for name in PROVENANCE_FIELDS} | {
+            "lyrics_classified_undefined_reason": classification.reason,
+        }
+    answer = classification.answers.get("lyrics_language")
+    return {
+        "lyrics_language": answer.choice if answer and not answer.error else None,
+        "clf_model": classification.model,
+        "clf_question_set": classification.question_set,
+        "clf_classified_at": classification.classified_at,
+        "lyrics_classified_undefined_reason": None,
+    }

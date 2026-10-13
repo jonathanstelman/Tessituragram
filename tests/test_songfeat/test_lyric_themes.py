@@ -1,5 +1,3 @@
-import pytest
-
 from songfeat.features.lyrics import themes
 from songfeat.features.lyrics.questions import Answer, Kind
 
@@ -144,7 +142,6 @@ def test_divergence_is_null_when_the_family_was_not_asked():
     assert out["theme_love_divergence"] is None
 
 
-@pytest.mark.xfail(reason="shared reason column lands in Task 11", strict=True)
 def test_the_feature_is_null_with_a_reason_when_no_client_is_configured():
     from songfeat.features import base
     from songfeat.model import Note, Part, Piece, Syllable
@@ -158,4 +155,4 @@ def test_the_feature_is_null_with_a_reason_when_no_client_is_configured():
 
     assert out["theme_love"] is None
     assert out["theme_love_divergence"] is None
-    assert "no classifier is configured" in out["themes_undefined_reason"]
+    assert "no classifier is configured" in out["lyrics_classified_undefined_reason"]
