@@ -100,6 +100,39 @@ pitch quartiles, performance time, and time spent singing in generalized vocal *
     * If there is a rest at the end of the composition, add a C1 pitch to the composition in an extra measure. Otherwise, any rests after the vocal line conclude in the composition will not register in the program.
   * Users can create MIDI files using free software. We used [MuseScore Studio](https://musescore.org/en)
 
+## Lyric classification (optional)
+
+`songfeat`'s `lyrics` feature group reads a song's words and reports what it is about:
+themes, tone, content advisories, how strongly the narrator's and the beloved's gender are
+cast, and subjects a particular student may need to avoid. It is the one group that is not
+offline, because it asks a classification model.
+
+**Everything else works without it.** No key, no network, no cost — and the `lyrics` columns
+report null with a reason saying the key is absent. Adding the key enables one feature group;
+it is not a prerequisite for running anything.
+
+To enable it, copy `.env.example` to `.env` and set `JEV_KEY` to a TypeSafe API key. Then ask
+for the group:
+
+```bash
+venv/bin/python -m songfeat scores/ --groups lyrics -o library.csv
+```
+
+**What it costs.** Under three cents per hundred songs: about 153 questions per song in 8
+batched calls, billed on input tokens only. Answers are cached per question, so a re-run of
+unchanged files costs nothing. To price a run before making it:
+
+```bash
+venv/bin/python -m songfeat scores/ --groups lyrics --lyrics-estimate
+```
+
+While developing, `--lyrics-questions core` asks 13 questions instead of 153 — one call per
+song, about 8% of the cost — and `--lyrics-max-calls N` stops a run rather than overspending if
+a glob matched more than you meant.
+
+**Lyrics must be in the file.** MIDI carries no words, so every column in this group is null on
+a MIDI input. MusicXML, which carries `<lyric>` elements, is what this group needs.
+
 ## Help
 
 Report any issues in the GitHub repo or reach out at [contact@tessituragram.com](contact@tessituragram.com)
