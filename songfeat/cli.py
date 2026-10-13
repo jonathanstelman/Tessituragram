@@ -202,8 +202,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--lyrics-max-calls", type=int, default=None, metavar="N",
         help=(
-            "stop the run after N classifier calls rather than continuing; "
-            "a guard against a glob that matched more than you meant"
+            "once this many classifier calls have been made in this run, "
+            "every further one -- for the file it was needed for, and any "
+            "file still to come -- fails rather than being made; the run "
+            "itself still finishes, with those files reported as "
+            "failures. A guard against a glob that matched more than you "
+            "meant"
+        ),
+    )
+    parser.add_argument(
+        "--lyrics-cache", default=None, metavar="PATH",
+        help=(
+            "where the per-question answer cache lives (default: "
+            f"{os.path.join('.songfeat', 'jev-cache.sqlite')}, i.e. "
+            "cache.DEFAULT_PATH); pass a throwaway path during "
+            "development so an answer cache built while iterating never "
+            "mixes with the one a real run relies on"
         ),
     )
     parser.add_argument("-q", "--quiet", action="store_true", help="suppress progress")
@@ -298,7 +312,7 @@ def main(argv: list[str] | None = None) -> int:
         client = _build_jev_client(args)
         service.configure(
             client=client,
-            cache=AnswerCache(DEFAULT_PATH),
+            cache=AnswerCache(args.lyrics_cache or DEFAULT_PATH),
             question_set_name=args.lyrics_questions,
             # The group WAS requested; a missing key is a different
             # fact than "nobody asked for this group", so it gets its

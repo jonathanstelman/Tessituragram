@@ -156,7 +156,10 @@ def test_the_lyrics_text_feature_reports_the_counts_and_the_hash():
     assert out["lyrics_word_count"] == 1
     assert out["lyrics_verse_count"] == 1
     assert out["lyrics_sha256"] == text_sha256("Hallo\n")
-    assert out["lyrics_text_path"] == "greeting.txt"
+    # part.index == 0 (set by built()); the name carries the part index
+    # now (task-12 fix round 1, finding 1) so a duet's two parts cannot
+    # collide on one filename.
+    assert out["lyrics_text_path"] == "greeting.part0.txt"
     assert out["lyrics_undefined_reason"] is None
 
 

@@ -139,7 +139,10 @@ def test_the_lyric_text_is_written_to_a_sidecar_file(tmp_path):
     pipeline.run([str(score)], sink, groups_filter=["lyrics"],
                  sidecar_dir=str(sidecars))
 
-    written = sidecars / (score.stem + ".txt")
+    # The name carries the part index (fix round 1, finding 1) so a
+    # second lyric-bearing part of the same file never overwrites this
+    # one's sidecar.
+    written = sidecars / (score.stem + ".part0.txt")
     assert written.exists()
     assert written.read_text(encoding="utf-8") == "Wer reitet so spat\n"
 
@@ -155,3 +158,118 @@ def test_no_sidecar_is_written_when_there_are_no_lyrics(tmp_path):
                  sidecar_dir=str(sidecars))
 
     assert not sidecars.exists(), "an empty directory implies a file we failed to write"
+
+
+def _musicxml_with_two_lyric_parts(tmp_path, first_words, second_words):
+    """A duet: two parts, each with its own lyrics."""
+    from music21 import note, stream
+
+    score = stream.Score()
+    for part_id, words in (("Soprano", first_words), ("Alto", second_words)):
+        part = stream.Part()
+        part.id = part_id
+        for word in words:
+            pitch = note.Note("C4", quarterLength=1.0)
+            pitch.lyric = word
+            part.append(pitch)
+        score.insert(0, part)
+    out = tmp_path / "duet.musicxml"
+    score.write("musicxml", fp=str(out))
+    return out
+
+
+def test_a_duet_writes_one_sidecar_per_part_and_the_columns_match(tmp_path):
+    """Fix round 1, finding 1: before the part index was in the name,
+    the second part's sidecar write silently overwrote the first's, and
+    both rows' lyrics_text_path pointed at a file holding only one
+    part's words."""
+    from songfeat import pipeline
+    from songfeat.sinks.base import MemorySink
+
+    score = _musicxml_with_two_lyric_parts(
+        tmp_path, ["high", "note"], ["low", "note"],
+    )
+    sidecars = tmp_path / "lyrics"
+    sink = MemorySink()
+    pipeline.run([str(score)], sink, groups_filter=["lyrics"],
+                 sidecar_dir=str(sidecars))
+
+    assert len(sink.records) == 2
+    paths = [r.features["lyrics_text_path"] for r in sink.records]
+    assert len(set(paths)) == 2, "the two parts must not share a filename"
+    texts = {
+        path: (sidecars / path).read_text(encoding="utf-8") for path in paths
+    }
+    assert sorted(texts.values()) == ["high note\n", "low note\n"]
+    # Every row's column names a file that was actually written, with
+    # that row's own words in it -- not the other part's.
+    for record in sink.records:
+        path = record.features["lyrics_text_path"]
+        assert (sidecars / path).exists()
+
+
+def test_two_different_sources_with_the_same_stem_do_not_overwrite_each_other(
+    tmp_path,
+):
+    """Fix round 1, finding 1: a teacher's real library puts same-named
+    pieces (e.g. two settings called "aria.musicxml") in different
+    composer directories. The part index alone cannot help here --
+    both are part 0 -- so the pipeline's own run-level registry must
+    disambiguate by source path instead."""
+    from songfeat import pipeline
+    from songfeat.sinks.base import MemorySink
+
+    first_dir = tmp_path / "bach"
+    second_dir = tmp_path / "handel"
+    first_dir.mkdir()
+    second_dir.mkdir()
+    # _musicxml_with_lyrics always writes "song.musicxml": exactly the
+    # same stem in two different directories, which is the point.
+    first = _musicxml_with_lyrics(first_dir, ["bach", "words"])
+    second = _musicxml_with_lyrics(second_dir, ["handel", "words"])
+
+    sidecars = tmp_path / "lyrics"
+    sink = MemorySink()
+    pipeline.run([str(first), str(second)], sink, groups_filter=["lyrics"],
+                 sidecar_dir=str(sidecars))
+
+    assert len(sink.records) == 2
+    paths = [r.features["lyrics_text_path"] for r in sink.records]
+    assert len(set(paths)) == 2, "two different sources must not collide on one name"
+    written_texts = sorted(
+        (sidecars / path).read_text(encoding="utf-8") for path in paths
+    )
+    assert written_texts == ["bach words\n", "handel words\n"]
+    for record in sink.records:
+        path = record.features["lyrics_text_path"]
+        assert (sidecars / path).exists(), (
+            "the column must name a file that was actually written"
+        )
+
+
+def test_an_unwritable_sidecar_directory_still_yields_complete_records(tmp_path):
+    """Fix round 1, finding 2: the classification answers in a record's
+    features already cost real money by the time the sidecar is
+    written. A write failure -- here, sidecar_dir exists as a plain
+    file rather than a directory, so os.makedirs raises -- must not
+    discard them: the record still comes out, with the failure
+    recorded in its own errors, not swallowed as a whole-file failure."""
+    from songfeat import pipeline
+    from songfeat.sinks.base import MemorySink
+
+    score = _musicxml_with_lyrics(tmp_path, ["love", "me"])
+    blocked = tmp_path / "not_a_directory"
+    blocked.write_text("in the way")
+
+    sink = MemorySink()
+    count, failures = pipeline.run(
+        [str(score)], sink, groups_filter=["lyrics"], sidecar_dir=str(blocked)
+    )
+
+    assert failures == [], "a sidecar write failure must not fail the whole file"
+    assert count == 1
+    record = sink.records[0]
+    assert record.features["lyrics_word_count"] == 2, (
+        "the paid-for classification features must survive the sidecar failure"
+    )
+    assert "lyrics_sidecar" in record.errors

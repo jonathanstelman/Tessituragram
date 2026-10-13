@@ -108,6 +108,12 @@ def test_parser_defaults():
     args = build_parser().parse_args([ARIA])
     assert args.drop_trailing_marker is False
     assert args.format is None
+    assert args.lyrics_cache is None, (
+        "None, not cache.DEFAULT_PATH itself: cli.py falls back to "
+        "DEFAULT_PATH only at the point of use, so a test that sets "
+        "JEV_KEY but never touches --lyrics-cache can never be fooled "
+        "into writing the real shared cache"
+    )
 
 
 def test_profile_flag_reports_degeneracy_and_weak_columns(capsys):
@@ -281,11 +287,47 @@ def test_lyrics_questions_core_is_recorded_in_the_output(tmp_path, monkeypatch):
     score = _musicxml_with_lyrics(tmp_path, ["love", "me"])
     out = tmp_path / "o.csv"
     code = cli.main([str(score), "--groups", "lyrics", "-o", str(out),
-                     "--lyrics-questions", "core"])
+                     "--lyrics-questions", "core",
+                     "--lyrics-cache", str(tmp_path / "cache.sqlite")])
 
     assert code == 0
     body = out.read_text(encoding="utf-8")
     assert "core@v1" in body
+    service.reset()
+    assert (tmp_path / "cache.sqlite").exists(), (
+        "the cache should have been built at the path --lyrics-cache named"
+    )
+
+
+def test_lyrics_cache_flag_keeps_the_repo_root_clean(tmp_path, monkeypatch):
+    """Regression for fix round 1, finding 3: cli.py used to hardcode
+    cache.DEFAULT_PATH, so every test driving cli.main with the lyrics
+    group wrote a real, mutable cache into .songfeat/ at the repo root
+    -- a 20KB file was found sitting there, built by the suite itself.
+    A run that names its own cache path must never touch that default
+    location at all."""
+    from songfeat import cli
+    from songfeat.features.lyrics import service
+    from songfeat.features.lyrics.cache import DEFAULT_PATH
+    from songfeat.features.lyrics.client import FakeJevClient
+    from songfeat.features.lyrics.questions import Answer
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        cli, "_build_jev_client",
+        lambda args: FakeJevClient({"theme_love": Answer("theme_love", probability=0.9)}),
+    )
+    score = _musicxml_with_lyrics(tmp_path, ["love", "me"])
+    out = tmp_path / "o.csv"
+    own_cache = tmp_path / "my-cache.sqlite"
+    code = cli.main([str(score), "--groups", "lyrics", "-o", str(out),
+                     "--lyrics-cache", str(own_cache)])
+
+    assert code == 0
+    assert own_cache.exists()
+    assert not (tmp_path / DEFAULT_PATH).exists(), (
+        "naming a cache path must not also touch the default location"
+    )
     service.reset()
 
 
@@ -314,7 +356,8 @@ def test_without_a_key_the_lyrics_group_says_so_and_the_run_still_succeeds(
     monkeypatch.delenv("JEV_KEY", raising=False)
     score = _musicxml_with_lyrics(tmp_path, ["love"])
     out = tmp_path / "o.csv"
-    code = cli.main([str(score), "--groups", "lyrics", "-o", str(out)])
+    code = cli.main([str(score), "--groups", "lyrics", "-o", str(out),
+                     "--lyrics-cache", str(tmp_path / "cache.sqlite")])
 
     assert code == 0, "a missing optional key is not a failed run"
     assert MISSING_KEY in out.read_text(encoding="utf-8")

@@ -24,15 +24,28 @@ TEXT_FIELDS = (
 )
 
 
-def sidecar_name(source_path: str | None) -> str | None:
-    """The sidecar file's name: the source's stem plus ``.txt``.
+def sidecar_name(source_path: str | None, part_index: int = 0) -> str | None:
+    """The sidecar file's name: the source's stem, the part index, ``.txt``.
 
     A name rather than a full path, because the directory is the output
     run's business (Task 12) and a feature must stay pure.
+
+    The part index is in the name because a duet or an SATB piece
+    produces one row per part (as parts already do) but, without it,
+    every one of those rows would compute the *same* filename from the
+    *same* stem -- the second part's sidecar write would silently
+    overwrite the first's, and both rows' ``lyrics_text_path`` would
+    point at a file holding only one part's words. Two different
+    source files that happen to share a stem (``bach/aria.musicxml``
+    and ``handel/aria.musicxml``) can still collide on this name; that
+    case is caught and disambiguated by the pipeline, which is the only
+    place that sees every source path in a run (see
+    ``pipeline._sidecar_target_name``).
     """
     if not source_path:
         return None
-    return os.path.splitext(os.path.basename(source_path))[0] + ".txt"
+    stem = os.path.splitext(os.path.basename(source_path))[0]
+    return f"{stem}.part{part_index}.txt"
 
 
 @feature(
@@ -57,7 +70,7 @@ def lyrics_text(part: Part, piece: Piece) -> dict[str, Any]:
         "lyrics_word_count": assembled.word_count,
         "lyrics_verse_count": assembled.verse_count,
         "lyrics_sha256": assembled.sha256,
-        "lyrics_text_path": sidecar_name(piece.source_path),
+        "lyrics_text_path": sidecar_name(piece.source_path, part.index),
         "lyrics_undefined_reason": None,
     }
 
